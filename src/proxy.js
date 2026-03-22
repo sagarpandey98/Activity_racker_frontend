@@ -15,7 +15,7 @@ const authRoutes = [
   '/signup',
 ];
 
-export function middleware(request) {
+export function proxy(request) {
   const token = request.cookies.get('auth_token')?.value;
   const pathname = request.nextUrl.pathname;
 

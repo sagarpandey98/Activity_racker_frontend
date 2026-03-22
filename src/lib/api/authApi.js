@@ -3,17 +3,16 @@ import authClient from './authClient';
 // Login with email and password
 export async function login(email, password) {
   const response = await authClient.post('/login', {
-    username: email,
+    identifier: email,
     password,
-    clientId: 'activity-tracker-client',
+    clientId: 'Activity-Tracker',
   });
   return response.data;
 }
 
-// Send OTP to email
 export async function sendOtp(email) {
   const response = await authClient.post('/send-otp', {
-    email,
+    identifier: email,
   });
   return response.data;
 }
@@ -21,21 +20,20 @@ export async function sendOtp(email) {
 // Verify OTP and get token
 export async function verifyOtp(email, otp) {
   const response = await authClient.post('/verify-otp', {
-    email,
-    otp,
-    clientId: 'activity-tracker-client',
+    email: email,
+    otp: otp,
+    clientId: 'Activity-Tracker',
   });
   return response.data;
 }
 
 // Sign up after OTP verification
-export async function signup(email, password, name, otp) {
+export async function signup(email, password, name) {
   const response = await authClient.post('/signup', {
-    email,
-    password,
-    name,
-    otp,
-    clientId: 'activity-tracker-client',
+    email: email,
+    password: password,
+    name: name,
+    clientId: 'Activity-Tracker',
   });
   return response.data;
 }

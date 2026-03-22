@@ -4,8 +4,8 @@ export const activitiesApi = {
   getAll: () =>
     trackerClient.get('/activities').then(r => r.data),
 
-  create: (data) =>
-    trackerClient.post('/activities', { data })
+  create: (activityData) =>
+    trackerClient.post('/activities', activityData)
       .then(r => r.data),
 
   createBulk: (activities) =>

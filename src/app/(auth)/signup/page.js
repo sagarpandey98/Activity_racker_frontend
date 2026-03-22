@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mail, Lock, User, Loader2, ArrowLeft } from 'lucide-react';
@@ -9,7 +9,7 @@ import AuthInput from '@/components/auth/AuthInput';
 import { sendOtp, verifyOtp, signup } from '@/lib/api/authApi';
 import useAuthStore from '@/lib/store/authStore';
 
-export default function SignupPage() {
+function SignupPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { setUser } = useAuthStore();
@@ -58,20 +58,43 @@ export default function SignupPage() {
     setError('');
 
     try {
-      if (isOtpLogin) {
-        const response = await verifyOtp(formData.email, formData.otp);
-        setUser(response.user || { email: formData.email });
-        router.push('/dashboard');
-      } else {
-        if (formData.password !== formData.confirmPassword) {
-          setError('Passwords do not match');
-          return;
+      const result = await verifyOtp(formData.email, formData.otp);
+
+      const token = result.data?.token;
+      const isSignedUp = result.data?.isSignedUp;
+
+      if (result.success === true && token) {
+        // Token is automatically stored in cookie by proxy
+        if (isSignedUp === true) {
+          router.push('/dashboard');
+        } else {
+          setStep(3);
         }
-        
-        const response = await signup(formData.email, formData.password, formData.name, formData.otp);
-        setUser(response.user || { email: formData.email, name: formData.name });
-        router.push('/dashboard');
+      } else {
+        setError(result.message || 'Invalid OTP');
       }
+    } catch (err) {
+      setError(err?.message || 'Invalid OTP');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSubmitSignup = async (e) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError('');
+
+    if (formData.password !== formData.confirmPassword) {
+      setError('Passwords do not match');
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      const response = await signup(formData.email, formData.password, formData.name);
+      setUser(response.user || { email: formData.email, name: formData.name });
+      router.push('/dashboard');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -87,8 +110,10 @@ export default function SignupPage() {
   };
 
   const goBack = () => {
-    setStep(1);
-    setError('');
+    if (step > 1) {
+      setStep(step - 1);
+      setError('');
+    }
   };
 
   return (
@@ -108,12 +133,18 @@ export default function SignupPage() {
           </div>
           
           <h1 className="text-2xl font-bold text-white mb-1">
-            {isOtpLogin ? 'Sign in with OTP' : step === 1 ? 'Create your account' : 'Verify your email'}
+            {isOtpLogin ? 'Sign in with OTP' : 
+              step === 1 ? 'Create your account' : 
+              step === 2 ? 'Verify your email' : 
+              'Complete your profile'
+            }
           </h1>
           <p className="text-sm text-slate-400 text-center">
             {step === 1 
               ? (isOtpLogin ? "We'll send a verification code to your email" : "We'll send a verification code to your email")
-              : `Enter the 6-digit code sent to ${formData.email}`
+              : step === 2
+              ? `Enter the 6-digit code sent to ${formData.email}`
+              : 'Enter your name and create a password'
             }
           </p>
         </div>
@@ -125,9 +156,11 @@ export default function SignupPage() {
               <div className={`w-2 h-2 rounded-full ${step >= 1 ? 'bg-white' : 'bg-slate-600'}`} />
               <div className={`w-8 h-0.5 ${step >= 2 ? 'bg-white' : 'bg-slate-600'}`} />
               <div className={`w-2 h-2 rounded-full ${step >= 2 ? 'bg-white' : 'bg-slate-600'}`} />
+              <div className={`w-8 h-0.5 ${step >= 3 ? 'bg-white' : 'bg-slate-600'}`} />
+              <div className={`w-2 h-2 rounded-full ${step >= 3 ? 'bg-white' : 'bg-slate-600'}`} />
             </div>
             <span className="ml-3 text-sm text-slate-600">
-              Step {step} of 2
+              Step {step} of 3
             </span>
           </div>
         )}
@@ -181,7 +214,7 @@ export default function SignupPage() {
                 </button>
               </form>
             </motion.div>
-          ) : (
+          ) : step === 2 ? (
             <motion.div
               key="step2"
               initial={{ opacity: 0, x: 50 }}
@@ -217,81 +250,114 @@ export default function SignupPage() {
                   className="text-center text-2xl font-bold tracking-[0.5em]"
                 />
 
-                {!isOtpLogin && (
-                  <>
-                    <AuthInput
-                      label="Full Name"
-                      icon={<User size={16} />}
-                      type="text"
-                      name="name"
-                      value={formData.name}
-                      onChange={handleChange}
-                      placeholder="John Doe"
-                      required
-                      disabled={isLoading}
-                    />
-
-                    <AuthInput
-                      label="Password"
-                      icon={<Lock size={16} />}
-                      type={showPassword ? 'text' : 'password'}
-                      name="password"
-                      value={formData.password}
-                      onChange={handleChange}
-                      placeholder="••••••••"
-                      required
-                      disabled={isLoading}
-                      showPasswordToggle
-                      showPassword={showPassword}
-                      onTogglePassword={() => setShowPassword(!showPassword)}
-                    />
-
-                    {/* Password Requirements */}
-                    <div className="space-y-1">
-                      {passwordRequirements.map((req, index) => (
-                        <div key={index} className="flex items-center text-xs">
-                          <div className={`w-1 h-1 rounded-full mr-2 ${
-                            req.test(formData.password) ? 'bg-green-400' : 'bg-slate-600'
-                          }`} />
-                          <span className={
-                            req.test(formData.password) ? 'text-green-400' : 'text-slate-600'
-                          }>
-                            {req.text}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-
-                    <AuthInput
-                      label="Confirm Password"
-                      icon={<Lock size={16} />}
-                      type={showConfirmPassword ? 'text' : 'password'}
-                      name="confirmPassword"
-                      value={formData.confirmPassword}
-                      onChange={handleChange}
-                      placeholder="••••••••"
-                      required
-                      disabled={isLoading}
-                      error={formData.confirmPassword && formData.password !== formData.confirmPassword ? 'Passwords do not match' : ''}
-                      showPasswordToggle
-                      showPassword={showConfirmPassword}
-                      onTogglePassword={() => setShowConfirmPassword(!showConfirmPassword)}
-                    />
-                  </>
-                )}
-
                 <button
                   type="submit"
-                  disabled={isLoading || (!isOtpLogin && !allPasswordRequirementsMet)}
+                  disabled={isLoading}
                   className="w-full py-3 rounded-xl bg-white text-black font-semibold hover:bg-gray-100 transition-all mt-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                 >
                   {isLoading ? (
                     <>
                       <Loader2 size={18} className="mr-2 animate-spin" />
-                      {isOtpLogin ? 'Signing in...' : 'Creating account...'}
+                      Verifying...
                     </>
                   ) : (
-                    isOtpLogin ? 'Sign in' : 'Create account'
+                    'Verify code'
+                  )}
+                </button>
+              </form>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="step3"
+              initial={{ opacity: 0, x: 50 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -50 }}
+              transition={{ duration: 0.3 }}
+            >
+              <form onSubmit={handleSubmitSignup} className="space-y-5">
+                {/* Back Link */}
+                <div className="text-center mb-4">
+                  <button
+                    type="button"
+                    onClick={goBack}
+                    className="text-sm text-slate-400 hover:text-white transition-colors flex items-center mx-auto"
+                  >
+                    <ArrowLeft size={16} className="mr-1" />
+                    Back
+                  </button>
+                </div>
+
+                <AuthInput
+                  label="Full Name"
+                  icon={<User size={16} />}
+                  type="text"
+                  name="name"
+                  value={formData.name}
+                  onChange={handleChange}
+                  placeholder="John Doe"
+                  required
+                  disabled={isLoading}
+                />
+
+                <AuthInput
+                  label="Password"
+                  icon={<Lock size={16} />}
+                  type={showPassword ? 'text' : 'password'}
+                  name="password"
+                  value={formData.password}
+                  onChange={handleChange}
+                  placeholder="••••••••"
+                  required
+                  disabled={isLoading}
+                  showPasswordToggle
+                  showPassword={showPassword}
+                  onTogglePassword={() => setShowPassword(!showPassword)}
+                />
+
+                {/* Password Requirements */}
+                <div className="space-y-1">
+                  {passwordRequirements.map((req, index) => (
+                    <div key={index} className="flex items-center text-xs">
+                      <div className={`w-1 h-1 rounded-full mr-2 ${
+                        req.test(formData.password) ? 'bg-green-400' : 'bg-slate-600'
+                      }`} />
+                      <span className={
+                        req.test(formData.password) ? 'text-green-400' : 'text-slate-600'
+                      }>
+                        {req.text}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                <AuthInput
+                  label="Confirm Password"
+                  icon={<Lock size={16} />}
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  name="confirmPassword"
+                  value={formData.confirmPassword}
+                  onChange={handleChange}
+                  placeholder="••••••••"
+                  required
+                  disabled={isLoading}
+                  error={formData.confirmPassword && formData.password !== formData.confirmPassword ? 'Passwords do not match' : ''}
+                  showPasswordToggle
+                  showPassword={showConfirmPassword}
+                  onTogglePassword={() => setShowConfirmPassword(!showConfirmPassword)}
+                />
+
+                <button
+                  type="submit"
+                  disabled={isLoading || !allPasswordRequirementsMet}
+                  className="w-full py-3 rounded-xl bg-white text-black font-semibold hover:bg-gray-100 transition-all mt-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 size={18} className="mr-2 animate-spin" />
+                      Creating account...
+                    </>
+                  ) : (
+                    'Create account'
                   )}
                 </button>
               </form>
@@ -311,5 +377,17 @@ export default function SignupPage() {
         </div>
       </AuthCard>
     </motion.div>
+  );
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#000212] flex items-center justify-center">
+        <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+      </div>
+    }>
+      <SignupPageContent />
+    </Suspense>
   );
 }

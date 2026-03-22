@@ -1,11 +1,15 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Allow images from backend if needed later
+  output: 'standalone',
   images: {
     remotePatterns: [
       {
         protocol: 'http',
         hostname: 'localhost',
+      },
+      {
+        protocol: 'http',
+        hostname: '*',
       },
     ],
   },
