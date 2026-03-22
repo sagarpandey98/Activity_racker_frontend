@@ -3,7 +3,7 @@ name: Deploy Frontend to GCP
 on:
   push:
     branches:
-      - v1
+      - main
 
 jobs:
   build-and-deploy:
