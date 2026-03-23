@@ -28,6 +28,17 @@ export default function LoginPage() {
 
     try {
       const response = await login(formData.email, formData.password);
+      
+      // Store token if provided
+      if (response.token) {
+        localStorage.setItem('auth_token', response.token);
+        
+        // Also set as cookie for middleware validation
+        const expiryDate = new Date();
+        expiryDate.setTime(expiryDate.getTime() + (7 * 24 * 60 * 60 * 1000)); // 7 days
+        document.cookie = `auth_token=${response.token}; path=/; expires=${expiryDate.toUTCString()}`;
+      }
+      
       setUser(response.user || { email: formData.email });
       router.push('/dashboard');
     } catch (err) {

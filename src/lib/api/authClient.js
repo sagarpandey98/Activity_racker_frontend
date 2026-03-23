@@ -8,6 +8,19 @@ const authClient = axios.create({
   withCredentials: true, // send cookies automatically
 });
 
+// Request interceptor — add token to headers
+authClient.interceptors.request.use(
+  (config) => {
+    // Get token from localStorage
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
 // Response interceptor — handle errors globally
 authClient.interceptors.response.use(
   (response) => response,

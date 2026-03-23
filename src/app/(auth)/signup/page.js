@@ -64,7 +64,37 @@ function SignupPageContent() {
       const isSignedUp = result.data?.isSignedUp;
 
       if (result.success === true && token) {
-        // Token is automatically stored in cookie by proxy
+        // Decode JWT to extract user info and set auth state
+        try {
+          const base64Url = token.split('.')[1];
+          const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+          const jsonPayload = decodeURIComponent(atob(base64).split('').map((c) => {
+            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+          }).join(''));
+          
+          const decoded = JSON.parse(jsonPayload);
+          
+          // Set user in auth store with token data
+          setUser({
+            id: decoded.id,
+            name: decoded.name,
+            email: decoded.email,
+            username: decoded.username || decoded.email,
+          });
+        } catch (decodeErr) {
+          console.error('Error decoding token:', decodeErr);
+          // Continue anyway - let AuthProvider fetch profile
+        }
+
+        // Store token in localStorage for API requests
+        localStorage.setItem('auth_token', token);
+        
+        // Also set as cookie for middleware validation
+        // Set cookie with secure and httponly flags where possible
+        const expiryDate = new Date();
+        expiryDate.setTime(expiryDate.getTime() + (7 * 24 * 60 * 60 * 1000)); // 7 days
+        document.cookie = `auth_token=${token}; path=/; expires=${expiryDate.toUTCString()}`;
+
         if (isSignedUp === true) {
           router.push('/dashboard');
         } else {
@@ -93,6 +123,17 @@ function SignupPageContent() {
 
     try {
       const response = await signup(formData.email, formData.password, formData.name);
+      
+      // Store token if provided
+      if (response.token) {
+        localStorage.setItem('auth_token', response.token);
+        
+        // Also set as cookie for middleware validation
+        const expiryDate = new Date();
+        expiryDate.setTime(expiryDate.getTime() + (7 * 24 * 60 * 60 * 1000)); // 7 days
+        document.cookie = `auth_token=${response.token}; path=/; expires=${expiryDate.toUTCString()}`;
+      }
+      
       setUser(response.user || { email: formData.email, name: formData.name });
       router.push('/dashboard');
     } catch (err) {
