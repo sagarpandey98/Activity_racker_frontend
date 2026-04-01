@@ -16,6 +16,14 @@ async function handler(request, { params }) {
   const queryString = searchParams ? `?${searchParams}` : '';
 
   const url = `${ACTIVITY_SERVICE_URL}/api/v1/${pathString}${queryString}`;
+  
+  console.log('[Tracker API Request]', {
+    method: request.method,
+    path: pathString,
+    url: url,
+    serviceUrl: ACTIVITY_SERVICE_URL,
+    timestamp: new Date().toISOString(),
+  });
 
   try {
     // Read JWT from httpOnly cookie
@@ -33,6 +41,13 @@ async function handler(request, { params }) {
       ? await request.text()
       : undefined;
 
+    console.log('[Tracker API Before Fetch]', {
+      method: request.method,
+      url: url,
+      hasToken: !!token,
+      tokenLength: token?.length,
+    });
+
     const response = await fetch(url, {
       method: request.method,
       headers: {
@@ -42,6 +57,13 @@ async function handler(request, { params }) {
       body: body || undefined,
     });
 
+    console.log('[Tracker API Response]', {
+      status: response.status,
+      statusText: response.statusText,
+      url: url,
+      timestamp: new Date().toISOString(),
+    });
+
     const data = await response.json();
 
     return NextResponse.json(data, {
@@ -49,8 +71,19 @@ async function handler(request, { params }) {
     });
 
   } catch (error) {
+    console.error('[Tracker API Error]', {
+      url,
+      message: error.message,
+      error: error.toString(),
+      stack: error.stack,
+      timestamp: new Date().toISOString(),
+    });
+    console.error('[Tracker API Error Details]', error);
     return NextResponse.json(
-      { message: 'Failed to reach tracker service' },
+      { 
+        message: 'Failed to reach tracker service',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      },
       { status: 503 }
     );
   }
