@@ -52,9 +52,9 @@ export default function Header() {
 
         {/* CTA Button */}
         <div className="hidden md:block">
-          <button className="bg-white text-black px-5 py-2 rounded-full text-sm font-semibold hover:bg-gray-200 transition-all">
-            Download Now
-          </button>
+          <a href="/login" className="border border-white text-white px-5 py-2 rounded-full text-sm font-semibold hover:bg-white hover:text-black transition-all">
+            Login
+          </a>
         </div>
 
         {/* Mobile Menu Toggle */}
@@ -75,9 +75,9 @@ export default function Header() {
               {link.name}
             </a>
           ))}
-          <button className="bg-white text-black w-full py-3 rounded-lg font-bold mt-4">
-            Download Now
-          </button>
+          <a href="/login" className="border border-white text-white w-full py-3 rounded-lg font-bold text-center block">
+            Login
+          </a>
         </motion.div>
       )}
     </header>

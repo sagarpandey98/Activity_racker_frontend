@@ -180,6 +180,7 @@ export default function GoalDrawer({
     setShowDescription(false);
     setParentSearch('');
     setSelectedParentGoal(null);
+    setShowParentDropdown(false);
 
     // Fetch all goals for parent selector
     (async () => {
@@ -218,6 +219,20 @@ export default function GoalDrawer({
       targetDate: toDateInputValue(g.targetDate),
     });
   }, [isOpen, editGoal]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (showParentDropdown && !event.target.closest('.parent-goal-dropdown')) {
+        setShowParentDropdown(false);
+      }
+    };
+
+    if (showParentDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showParentDropdown]);
 
   const periodLabel = useMemo(() => {
     switch (form.evaluationPeriod) {
@@ -426,7 +441,7 @@ export default function GoalDrawer({
                 {!isEdit && !parentGoal ? (
                   <div className="col-span-2 mt-4">
                     <Field label="Parent Goal (optional)">
-                      <div className="relative">
+                      <div className="relative parent-goal-dropdown">
                         {selectedParentGoal ? (
                           <div className="flex items-center justify-between bg-white/5 border border-white/10 rounded-xl px-3 py-2.5">
                             <span className="text-sm text-white">
@@ -454,6 +469,10 @@ export default function GoalDrawer({
                                 setShowParentDropdown(true);
                               }}
                               onFocus={() => setShowParentDropdown(true)}
+                              onBlur={() => {
+                                // Delay closing to allow click on options
+                                setTimeout(() => setShowParentDropdown(false), 150);
+                              }}
                               placeholder="Search goals..."
                               className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-2.5 text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-white/25"
                             />
