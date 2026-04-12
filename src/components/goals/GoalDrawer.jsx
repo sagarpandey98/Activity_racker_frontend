@@ -272,7 +272,7 @@ export default function GoalDrawer({
       description: form.description || undefined,
       goalType: form.goalType || undefined,
       priority: form.priority || undefined,
-      isMilestone: Boolean(form.isMilestone),
+      isMilestone: form.isContainer ? true : Boolean(form.isMilestone),
       parentGoalId,
       isLeaf: form.isContainer ? false : true,
       metric: showAdvancedOptions ? (form.metric || 'COUNT') : 'COUNT',
@@ -548,19 +548,6 @@ export default function GoalDrawer({
                     This goal&apos;s health will be calculated from its child goals automatically.
                   </div>
                 ) : null}
-
-                <div className="mt-4 flex items-center justify-between">
-                  <div>
-                    <div className="text-white text-sm">Mark as Milestone</div>
-                    <div className="text-xs text-slate-500">
-                      Flag this as a key achievement
-                    </div>
-                  </div>
-                  <SwitchToggle
-                    checked={form.isMilestone}
-                    onChange={(v) => update({ isMilestone: v })}
-                  />
-                </div>
               </div>
 
               {/* SECTION: Progress Tracking */}
