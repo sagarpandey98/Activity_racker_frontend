@@ -55,3 +55,35 @@ export const goalsApi = {
     trackerClient.patch('/goals/status/bulk', updates)
       .then(r => r.data),
 };
+
+// Priority System
+export const priorityApi = {
+  // Priority-wise goal listings
+  getSortedGoals: () =>
+    trackerClient.get('/priority/goals/sorted').then(r => r.data),
+
+  getGroupedGoals: () =>
+    trackerClient.get('/priority/goals/grouped').then(r => r.data),
+
+  getTodayFocus: (limit = 10) =>
+    trackerClient.get(`/priority/goals/today-focus?limit=${limit}`).then(r => r.data),
+
+  // Priority score calculation
+  getGoalScore: (goalUuid) =>
+    trackerClient.get(`/priority/goals/${goalUuid}/score`).then(r => r.data),
+
+  // Priority analytics
+  getStatistics: () =>
+    trackerClient.get('/priority/statistics').then(r => r.data),
+};
+
+// Smart Todo List
+export const smartTodoApi = {
+  // Get today's smart todo list
+  getTodayTodos: () =>
+    trackerClient.get('/todos/today').then(r => r.data),
+
+  // Refresh today's todo list
+  refreshTodos: () =>
+    trackerClient.post('/todos/refresh').then(r => r.data),
+};

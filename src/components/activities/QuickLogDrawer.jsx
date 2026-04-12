@@ -19,7 +19,7 @@ const formatTime = (date) => {
   return date.toTimeString().slice(0, 5);
 };
 
-export default function QuickLogDrawer({ isOpen, onClose, onSuccess }) {
+export default function QuickLogDrawer({ isOpen, onClose, onSuccess, prefillGoal }) {
   const [activityName, setActivityName] = useState('');
   const [selectedGoal, setSelectedGoal] = useState(null);
   const [goalSearch, setGoalSearch] = useState('');
@@ -66,12 +66,42 @@ export default function QuickLogDrawer({ isOpen, onClose, onSuccess }) {
       setError('');
       setShowGoalDropdown(false);
 
+      // Pre-fill goal if provided
+      if (prefillGoal) {
+        // Map SmartTodo goal structure to regular goal structure
+        const goalId = prefillGoal.goalId || prefillGoal.id;
+        
+        if (!goalId) {
+          console.error('Goal ID is undefined in prefillGoal:', prefillGoal);
+          setError('Goal ID is missing. Please select a goal manually.');
+        } else {
+          const mappedGoal = {
+            id: goalId,
+            title: prefillGoal.title || prefillGoal.name,
+            name: prefillGoal.title || prefillGoal.name,
+            domainId: prefillGoal.domainId,
+            domainName: prefillGoal.domainName,
+            subdomainId: prefillGoal.subdomainId,
+            subdomainName: prefillGoal.subdomainName,
+            specificId: prefillGoal.specificId,
+            specificName: prefillGoal.specificName,
+            metric: prefillGoal.metric || 'COUNT',
+            currentValue: prefillGoal.currentProgress || 0,
+            targetValue: prefillGoal.targetProgress || 0,
+            priority: prefillGoal.priority,
+            isLeaf: true,
+          };
+          setSelectedGoal(mappedGoal);
+          setActivityName(prefillGoal.title || prefillGoal.name || '');
+        }
+      }
+
       // Focus activity input
       setTimeout(() => {
         activityInputRef.current?.focus();
       }, 100);
     }
-  }, [isOpen]);
+  }, [isOpen, prefillGoal]);
 
   const getDuration = () => {
     if (!startTime || !endTime) return null;
@@ -124,21 +154,22 @@ export default function QuickLogDrawer({ isOpen, onClose, onSuccess }) {
     setError('');
 
     try {
-      // Build today's date
-      const today = new Date().toISOString().split('T')[0];
-      // Get timezone offset
-      const tzOffset = new Date().getTimezoneOffset();
-      const tzHours = Math.abs(Math.floor(tzOffset / 60))
-        .toString()
-        .padStart(2, '0');
-      const tzMins = Math.abs(tzOffset % 60)
-        .toString()
-        .padStart(2, '0');
-      const tzSign = tzOffset <= 0 ? '+' : '-';
-      const tz = `${tzSign}${tzHours}:${tzMins}`;
-
-      const startISO = `${today}T${startTime}:00${tz}`;
-      const endISO = `${today}T${endTime}:00${tz}`;
+      // Convert local time strings to proper ISO datetime with timezone
+      const today = new Date();
+      
+      // Parse start and end times and combine with today's date
+      const [startHours, startMins] = startTime.split(':').map(Number);
+      const [endHours, endMins] = endTime.split(':').map(Number);
+      
+      const startDate = new Date(today);
+      startDate.setHours(startHours, startMins, 0, 0);
+      
+      const endDate = new Date(today);
+      endDate.setHours(endHours, endMins, 0, 0);
+      
+      // Convert to ISO string
+      const startISO = startDate.toISOString();
+      const endISO = endDate.toISOString();
 
       // Step 1: Create activity
       await activitiesApi.create({

@@ -29,6 +29,7 @@ export default function GoalList({ goals, onEdit, onDelete }) {
         <div className="flex items-center gap-3">
           <div className="flex-1">Title</div>
           <div className="w-24">Priority</div>
+          <div className="w-20">Score</div>
           <div className="w-28">Status</div>
           <div className="w-40">Health</div>
           <div className="w-32">Progress</div>
@@ -39,6 +40,7 @@ export default function GoalList({ goals, onEdit, onDelete }) {
 
       {rows.map((g) => {
         const healthScore = g?.healthScore;
+        const effectivePriorityScore = g?.effectivePriorityScore;
         const progressText =
           g?.targetValue !== null && g?.targetValue !== undefined
             ? `${g?.currentValue ?? 0}/${g?.targetValue}`
@@ -54,12 +56,27 @@ export default function GoalList({ goals, onEdit, onDelete }) {
                 <div className="text-sm text-white font-medium truncate">
                   {g?.title || 'Untitled'}
                 </div>
+                {g?.parentGoalTitle ? (
+                  <div className="text-xs text-blue-400 truncate">
+                    📁 {g?.parentGoalTitle}
+                  </div>
+                ) : null}
               </div>
 
               <div className="w-24">
                 <Badge className={getPriorityColor(g?.priority)}>
                   {getPriorityLabel(g?.priority)}
                 </Badge>
+              </div>
+
+              <div className="w-20">
+                {effectivePriorityScore !== undefined && effectivePriorityScore !== null ? (
+                  <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">
+                    {Number(effectivePriorityScore).toFixed(1)}
+                  </Badge>
+                ) : (
+                  <span className="text-xs text-slate-500">—</span>
+                )}
               </div>
 
               <div className="w-28">

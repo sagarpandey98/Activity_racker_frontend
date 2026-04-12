@@ -44,6 +44,8 @@ export default function GoalCard({
   const priority = goal?.priority;
   const status = goal?.status;
   const healthScore = goal?.healthScore;
+  const effectivePriorityScore = goal?.effectivePriorityScore;
+  const parentGoalTitle = goal?.parentGoalTitle;
 
   const isLeaf = goal?.isLeaf === true;
   const hasChildren = Array.isArray(goal?.childGoals) && goal.childGoals.length > 0;
@@ -118,6 +120,12 @@ export default function GoalCard({
           <span className={['text-xs px-2 py-0.5 rounded-full border', getPriorityColor(priority)].join(' ')}>
             {getPriorityLabel(priority)}
           </span>
+
+          {effectivePriorityScore !== undefined && effectivePriorityScore !== null ? (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">
+              Score: {Number(effectivePriorityScore).toFixed(1)}
+            </span>
+          ) : null}
 
           {healthScore !== null && healthScore !== undefined ? (
             <span className={['text-xs px-2 py-0.5 rounded-full border', getHealthBadgeClass(healthScore)].join(' ')}>
@@ -194,6 +202,11 @@ export default function GoalCard({
       </div>
 
       {/* ROW 2 */}
+      {parentGoalTitle ? (
+        <div className="text-xs text-blue-400 mt-1 ml-6 truncate">
+          📁 {parentGoalTitle}
+        </div>
+      ) : null}
       {description ? (
         <div className="text-xs text-slate-500 mt-1 ml-6 truncate">
           {description}

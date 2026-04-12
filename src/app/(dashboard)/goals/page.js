@@ -148,53 +148,63 @@ export default function GoalsPage() {
 
       {/* Main content */}
       <div className="mt-6">
-        {isLoading ? (
-          <div className="space-y-3">
-            <div className="bg-white/5 animate-pulse rounded-xl h-16 mb-2" />
-            <div className="bg-white/5 animate-pulse rounded-xl h-16 mb-2" />
-            <div className="bg-white/5 animate-pulse rounded-xl h-16 mb-2" />
-          </div>
-        ) : error ? (
-          <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-5">
-            <div className="text-white font-semibold">Couldn’t load goals</div>
-            <div className="text-sm text-red-200 mt-1">{error}</div>
-            <button
-              type="button"
-              onClick={fetchGoals}
-              className="mt-4 px-4 py-2 rounded-xl bg-white text-black font-semibold hover:bg-gray-100 transition-colors"
-            >
-              Try again
-            </button>
-          </div>
-        ) : isEmpty ? (
-          <div className="flex flex-col items-center text-center mt-20">
-            <Target className="w-16 h-16 text-slate-700" />
-            <div className="mt-4 text-xl font-semibold text-white">No goals yet</div>
-            <div className="text-slate-400 text-sm mt-2">
-              Create your first goal to start tracking your progress
+        {/* Goals Section */}
+        <div>
+          <div className="flex items-center justify-between gap-4 mb-4">
+            <h2 className="text-lg font-semibold text-white">All Goals</h2>
+            <div className="flex items-center gap-2 text-sm text-slate-500">
+              {flatGoals.length} total goals
             </div>
-            <button
-              type="button"
-              onClick={openNew}
-              className="bg-white text-black rounded-xl px-6 py-3 mt-6 font-semibold hover:bg-gray-100 transition-colors"
-            >
-              Create your first goal
-            </button>
           </div>
-        ) : viewMode === 'tree' ? (
-          <GoalTree
-            goals={goals}
-            onEdit={handleEdit}
-            onAddChild={handleAddChild}
-            onDelete={handleDelete}
-          />
-        ) : (
-          <GoalList
-            goals={flatGoals}
-            onEdit={handleEdit}
-            onDelete={handleDelete}
-          />
-        )}
+
+          {isLoading ? (
+            <div className="space-y-3">
+              <div className="bg-white/5 animate-pulse rounded-xl h-16 mb-2" />
+              <div className="bg-white/5 animate-pulse rounded-xl h-16 mb-2" />
+              <div className="bg-white/5 animate-pulse rounded-xl h-16 mb-2" />
+            </div>
+          ) : error ? (
+            <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-5">
+              <div className="text-white font-semibold">Couldn't load goals</div>
+              <div className="text-sm text-red-200 mt-1">{error}</div>
+              <button
+                type="button"
+                onClick={fetchGoals}
+                className="mt-4 px-4 py-2 rounded-xl bg-white text-black font-semibold hover:bg-gray-100 transition-colors"
+              >
+                Try again
+              </button>
+            </div>
+          ) : isEmpty ? (
+            <div className="flex flex-col items-center text-center mt-20">
+              <Target className="w-16 h-16 text-slate-700" />
+              <div className="mt-4 text-xl font-semibold text-white">No goals yet</div>
+              <div className="text-slate-400 text-sm mt-2">
+                Create your first goal to start tracking your progress
+              </div>
+              <button
+                type="button"
+                onClick={openNew}
+                className="bg-white text-black rounded-xl px-6 py-3 mt-6 font-semibold hover:bg-gray-100 transition-colors"
+              >
+                Create your first goal
+              </button>
+            </div>
+          ) : viewMode === 'tree' ? (
+            <GoalTree
+              goals={goals}
+              onEdit={handleEdit}
+              onAddChild={handleAddChild}
+              onDelete={handleDelete}
+            />
+          ) : (
+            <GoalList
+              goals={flatGoals}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+            />
+          )}
+        </div>
       </div>
 
       <GoalDrawer

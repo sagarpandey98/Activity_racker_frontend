@@ -10,6 +10,7 @@ import { getPriorityLabel, getPriorityColor, isLeafGoal, isTrackedGoal } from '@
 import { formatDate, getRelativeTime, isToday } from '@/lib/utils/dateUtils';
 import useAuthStore from '@/lib/store/authStore';
 import useUIStore from '@/lib/store/uiStore';
+import SmartTodo from '@/components/todos/SmartTodo';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -354,6 +355,14 @@ export default function DashboardPage() {
 
         {/* Right Column */}
         <div className="space-y-6">
+          {/* Today's Tasks Widget */}
+          <div>
+            <h2 className="text-sm font-medium text-slate-400 mb-4">
+              Today's Tasks
+            </h2>
+            <SmartTodo />
+          </div>
+
           {/* Due Soon */}
           <div>
             <h2 className="text-lg font-semibold text-white mb-4">Due Soon</h2>

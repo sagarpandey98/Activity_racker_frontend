@@ -24,7 +24,7 @@ export default function DashboardLayout({ children }) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, isLoading } = useAuthStore();
-  const { isQuickLogOpen, setIsQuickLogOpen } = useUIStore();
+  const { isQuickLogOpen, setIsQuickLogOpen, prefillGoal, setPrefillGoal } = useUIStore();
 
   const title = useMemo(() => getTitleFromPath(pathname), [pathname]);
 
@@ -73,10 +73,15 @@ export default function DashboardLayout({ children }) {
           {/* Quick Log Drawer */}
           <QuickLogDrawer
             isOpen={isQuickLogOpen}
-            onClose={() => setIsQuickLogOpen(false)}
+            onClose={() => {
+              setIsQuickLogOpen(false);
+              setPrefillGoal(null);
+            }}
             onSuccess={() => {
               setIsQuickLogOpen(false);
+              setPrefillGoal(null);
             }}
+            prefillGoal={prefillGoal}
           />
         </div>
       )}

@@ -24,6 +24,39 @@ export function getPriorityColor(priority) {
   }
 }
 
+// Priority score calculation helpers
+export function getPriorityValue(priority) {
+  switch (priority) {
+    case 'CRITICAL': return 4;
+    case 'HIGH':     return 3;
+    case 'MEDIUM':   return 2;
+    case 'LOW':      return 1;
+    default:         return 1;
+  }
+}
+
+export function calculateEffectivePriorityScore(goal, parentGoal = null) {
+  const childPriority = getPriorityValue(goal?.priority);
+  const parentPriority = parentGoal ? getPriorityValue(parentGoal?.priority) : 0;
+  
+  // Weighted formula: 70% child + 30% parent
+  let score = (childPriority * 0.7) + (parentPriority * 0.3);
+  
+  // Bonus for children of CRITICAL goals
+  if (parentPriority === 4) {
+    score += 0.5;
+  }
+  
+  return Math.round(score * 10) / 10; // Round to 1 decimal place
+}
+
+export function getPriorityScoreColor(score) {
+  if (score >= 3.5) return 'bg-red-500/20 text-red-400 border-red-500/30';
+  if (score >= 2.5) return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
+  if (score >= 1.5) return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
+  return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
+}
+
 // Status label and color
 export function getStatusColor(status) {
   switch (status) {

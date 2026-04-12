@@ -143,6 +143,7 @@ export default function GoalDrawer({
   const [error, setError] = useState('');
   const [showScheduleAdvanced, setShowScheduleAdvanced] = useState(false);
   const [showDescription, setShowDescription] = useState(false);
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
   const [allGoals, setAllGoals] = useState([]);
   const [parentSearch, setParentSearch] = useState('');
   const [showParentDropdown, setShowParentDropdown] = useState(false);
@@ -162,8 +163,9 @@ export default function GoalDrawer({
     evaluationPeriod: '',
     targetPerPeriod: '',
     customPeriodDays: '',
-    scheduleType: 'FLEXIBLE',
+    evaluationPeriodType: 'FLEXIBLE',
     scheduleDays: [],
+    missesAllowedPerPeriod: '',
     minimumSessionMinutes: '',
     allowDoubleLogging: true,
     startDate: '',
@@ -178,6 +180,7 @@ export default function GoalDrawer({
     setIsSaving(false);
     setShowScheduleAdvanced(false);
     setShowDescription(false);
+    setShowAdvancedOptions(false);
     setParentSearch('');
     setSelectedParentGoal(null);
     setShowParentDropdown(false);
@@ -211,8 +214,9 @@ export default function GoalDrawer({
       evaluationPeriod: g.evaluationPeriod || '',
       targetPerPeriod: g.targetPerPeriod ?? '',
       customPeriodDays: g.customPeriodDays ?? '',
-      scheduleType: g.scheduleType || 'FLEXIBLE',
+      evaluationPeriodType: g.evaluationPeriodType || 'FLEXIBLE',
       scheduleDays: Array.isArray(g.scheduleDays) ? g.scheduleDays : [],
+      missesAllowedPerPeriod: g.missesAllowedPerPeriod ?? '',
       minimumSessionMinutes: g.minimumSessionMinutes ?? '',
       allowDoubleLogging: Boolean(g.allowDoubleLogging),
       startDate: toDateInputValue(g.startDate) || toDateInputValue(new Date()),
@@ -271,8 +275,8 @@ export default function GoalDrawer({
       isMilestone: Boolean(form.isMilestone),
       parentGoalId,
       isLeaf: form.isContainer ? false : true,
-      metric: 'COUNT',
-      targetOperator: 'GREATER_THAN',
+      metric: showAdvancedOptions ? (form.metric || 'COUNT') : 'COUNT',
+      targetOperator: showAdvancedOptions ? (form.targetOperator || 'GREATER_THAN') : 'GREATER_THAN',
       targetValue: form.isContainer
         ? 1
         : (form.targetValue === '' ? undefined : parseFloat(form.targetValue)),
@@ -288,11 +292,13 @@ export default function GoalDrawer({
         form.evaluationPeriod === 'CUSTOM' && form.customPeriodDays !== ''
           ? parseFloat(form.customPeriodDays)
           : null;
-      payload.scheduleType = form.evaluationPeriod ? form.scheduleType : null;
+      payload.evaluationPeriodType = form.evaluationPeriod ? form.evaluationPeriodType : null;
       payload.scheduleDays =
-        form.evaluationPeriod && form.scheduleType === 'SPECIFIC_DAYS'
+        form.evaluationPeriod && form.evaluationPeriodType === 'SPECIFIC'
           ? form.scheduleDays
           : null;
+      payload.missesAllowedPerPeriod =
+        form.evaluationPeriod && form.missesAllowedPerPeriod !== '' ? parseFloat(form.missesAllowedPerPeriod) : null;
       payload.minimumSessionMinutes =
         form.evaluationPeriod && form.minimumSessionMinutes !== '' ? parseFloat(form.minimumSessionMinutes) : null;
       payload.allowDoubleLogging = Boolean(form.allowDoubleLogging);
@@ -423,9 +429,9 @@ export default function GoalDrawer({
                     <Select
                       value={form.goalType}
                       onChange={(v) => {
-                        const nextScheduleType =
-                          v === 'HABIT' || v === 'FITNESS' ? 'SPECIFIC_DAYS' : 'FLEXIBLE';
-                        update({ goalType: v, scheduleType: nextScheduleType });
+                        const nextEvaluationPeriodType =
+                          v === 'HABIT' || v === 'FITNESS' ? 'SPECIFIC' : 'FLEXIBLE';
+                        update({ goalType: v, evaluationPeriodType: nextEvaluationPeriodType });
                       }}
                       options={GOAL_TYPES}
                     />
@@ -562,13 +568,6 @@ export default function GoalDrawer({
                 <div>
                   <div className="text-sm font-medium text-slate-300 mb-3">Progress Tracking</div>
                   <div className="space-y-4">
-                    <Field label="What are you tracking?">
-                      <Select
-                        value={form.metric}
-                        onChange={(v) => update({ metric: v })}
-                        options={METRICS}
-                      />
-                    </Field>
                     <Field label="Target Number">
                       <Input
                         type="number"
@@ -578,6 +577,41 @@ export default function GoalDrawer({
                         className="h-10 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus-visible:border-white/25 focus-visible:ring-0"
                       />
                     </Field>
+                    
+                    {!showAdvancedOptions ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowAdvancedOptions(true)}
+                        className="text-xs text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1"
+                      >
+                        <Plus className="w-3 h-3" />
+                        Advanced options
+                      </button>
+                    ) : (
+                      <div className="space-y-4 border-l-2 border-white/10 pl-4">
+                        <Field label="What are you tracking?">
+                          <Select
+                            value={form.metric}
+                            onChange={(v) => update({ metric: v })}
+                            options={METRICS}
+                          />
+                        </Field>
+                        <Field label="Target Operator">
+                          <Select
+                            value={form.targetOperator}
+                            onChange={(v) => update({ targetOperator: v })}
+                            options={OPERATORS}
+                          />
+                        </Field>
+                        <button
+                          type="button"
+                          onClick={() => setShowAdvancedOptions(false)}
+                          className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                        >
+                          Hide advanced options
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : null}
@@ -622,10 +656,10 @@ export default function GoalDrawer({
                           <div className="inline-flex rounded-xl border border-white/10 bg-white/5 p-1">
                             <button
                               type="button"
-                              onClick={() => update({ scheduleType: 'FLEXIBLE' })}
+                              onClick={() => update({ evaluationPeriodType: 'FLEXIBLE' })}
                               className={[
                                 'px-3 py-2 rounded-lg text-sm transition-colors',
-                                form.scheduleType === 'FLEXIBLE'
+                                form.evaluationPeriodType === 'FLEXIBLE'
                                   ? 'bg-white text-black'
                                   : 'text-slate-400 hover:text-white',
                               ].join(' ')}
@@ -634,10 +668,10 @@ export default function GoalDrawer({
                             </button>
                             <button
                               type="button"
-                              onClick={() => update({ scheduleType: 'SPECIFIC_DAYS' })}
+                              onClick={() => update({ evaluationPeriodType: 'SPECIFIC' })}
                               className={[
                                 'px-3 py-2 rounded-lg text-sm transition-colors',
-                                form.scheduleType === 'SPECIFIC_DAYS'
+                                form.evaluationPeriodType === 'SPECIFIC'
                                   ? 'bg-white text-black'
                                   : 'text-slate-400 hover:text-white',
                               ].join(' ')}
@@ -647,29 +681,54 @@ export default function GoalDrawer({
                           </div>
                         </div>
 
-                        {form.scheduleType === 'SPECIFIC_DAYS' ? (
+                        {form.evaluationPeriodType === 'SPECIFIC' ? (
                           <div>
-                            <div className="text-sm font-medium text-slate-300 mb-2">Days</div>
-                            <div className="flex flex-wrap gap-2">
-                              {DAYS.map((d) => {
-                                const selected = form.scheduleDays.includes(d.key);
-                                return (
-                                  <button
-                                    key={d.key}
-                                    type="button"
-                                    onClick={() => toggleDay(d.key)}
-                                    className={[
-                                      'px-3 py-2 rounded-xl text-xs transition-colors',
-                                      selected
-                                        ? 'bg-white text-black'
-                                        : 'bg-white/5 text-slate-400 hover:text-white',
-                                    ].join(' ')}
-                                  >
-                                    {d.key}
-                                  </button>
-                                );
-                              })}
+                            <div className="text-sm font-medium text-slate-300 mb-2">
+                              {form.evaluationPeriod === 'WEEKLY' ? 'Days of Week' : 
+                               form.evaluationPeriod === 'MONTHLY' ? 'Days of Month' : 
+                               form.evaluationPeriod === 'YEARLY' ? 'Days of Year' : 'Schedule'}
                             </div>
+                            {form.evaluationPeriod === 'WEEKLY' ? (
+                              <div className="flex flex-wrap gap-2">
+                                {DAYS.map((d) => {
+                                  const selected = form.scheduleDays.includes(d.key);
+                                  return (
+                                    <button
+                                      key={d.key}
+                                      type="button"
+                                      onClick={() => toggleDay(d.key)}
+                                      className={[
+                                        'px-3 py-2 rounded-xl text-xs transition-colors',
+                                        selected
+                                          ? 'bg-white text-black'
+                                          : 'bg-white/5 text-slate-400 hover:text-white',
+                                      ].join(' ')}
+                                    >
+                                      {d.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <div>
+                                <Input
+                                  type="text"
+                                  value={form.scheduleDays.join(', ')}
+                                  onChange={(e) => update({ 
+                                    scheduleDays: e.target.value.split(',').map(s => s.trim()).filter(Boolean) 
+                                  })}
+                                  placeholder={
+                                    form.evaluationPeriod === 'MONTHLY' ? 'e.g. 1, 15, 20' :
+                                    form.evaluationPeriod === 'YEARLY' ? 'e.g. Jan 1, Jun 15, Dec 25' :
+                                    'e.g. 1, 15, 20'
+                                  }
+                                  className="h-10 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus-visible:border-white/25 focus-visible:ring-0"
+                                />
+                                <div className="text-xs text-slate-500 mt-1">
+                                  Enter comma-separated values
+                                </div>
+                              </div>
+                            )}
                           </div>
                         ) : null}
 
@@ -691,6 +750,18 @@ export default function GoalDrawer({
                                 type="number"
                                 value={form.minimumSessionMinutes}
                                 onChange={(e) => update({ minimumSessionMinutes: e.target.value })}
+                                className="h-10 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus-visible:border-white/25 focus-visible:ring-0"
+                              />
+                            </Field>
+                            <Field
+                              label="Misses allowed per period"
+                              hint={`Number of missed check-ins allowed per ${form.evaluationPeriod?.toLowerCase() || 'period'}`}
+                            >
+                              <Input
+                                type="number"
+                                value={form.missesAllowedPerPeriod}
+                                onChange={(e) => update({ missesAllowedPerPeriod: e.target.value })}
+                                placeholder="e.g. 1"
                                 className="h-10 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus-visible:border-white/25 focus-visible:ring-0"
                               />
                             </Field>
