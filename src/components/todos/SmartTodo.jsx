@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   CheckCircle2, 
   Circle, 
@@ -10,10 +11,35 @@ import {
   Target, 
   Calendar,
   RefreshCw,
-  AlertTriangle 
+  AlertTriangle,
+  LayoutGrid,
+  List as ListIcon,
+  SortAsc,
+  PieChart as PieChartIcon,
+  BarChart3
 } from 'lucide-react';
+import { 
+  PieChart, 
+  Pie, 
+  Cell, 
+  ResponsiveContainer, 
+  Tooltip as RechartsTooltip,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis
+} from 'recharts';
 import { smartTodoApi } from '@/lib/api/goalsApi';
 import useUIStore from '@/lib/store/uiStore';
+
+const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4'];
+
+const PRIORITY_COLORS = {
+  'CRITICAL': '#ef4444',
+  'HIGH': '#f59e0b',
+  'MEDIUM': '#eab308',
+  'LOW': '#64748b'
+};
 
 function PriorityBadge({ priority, display }) {
   const styles = {
@@ -88,6 +114,7 @@ export default function SmartTodo() {
   const [error, setError] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
+  const [groupBy, setGroupBy] = useState('status'); // 'status', 'goal', 'priority'
   const { setIsQuickLogOpen, setPrefillGoal } = useUIStore();
 
   const fetchTodos = async () => {
@@ -166,216 +193,316 @@ export default function SmartTodo() {
     );
   }
 
+  // ─── Data Processing ───
+  
+  // 1. Time Commitment Chart Data
+  const timeData = todos
+    .filter(t => t.suggestedTimeMinutes > 0)
+    .map(t => ({
+      name: t.title,
+      value: t.suggestedTimeMinutes,
+      goalId: t.goalId
+    }));
+
+  const totalCommittedMinutes = timeData.reduce((sum, item) => sum + item.value, 0);
+
+  // 2. Priority Distribution
+  const priorityDist = Object.keys(PRIORITY_COLORS).map(p => ({
+    name: p,
+    count: todos.filter(t => t.priority === p).length,
+    color: PRIORITY_COLORS[p]
+  }));
+
+  // 3. Grouping Logic
+  const getGroupedTodos = () => {
+    if (groupBy === 'goal') {
+      const groups = {};
+      todos.forEach(t => {
+        const key = t.title; 
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(t);
+      });
+      return Object.entries(groups).map(([name, items]) => ({ name, items, icon: Target }));
+    }
+    
+    if (groupBy === 'priority') {
+      const groups = { 'CRITICAL': [], 'HIGH': [], 'MEDIUM': [], 'LOW': [] };
+      todos.forEach(t => {
+        if (groups[t.priority]) groups[t.priority].push(t);
+        else groups['LOW'].push(t);
+      });
+      return Object.entries(groups)
+        .filter(([_, items]) => items.length > 0)
+        .map(([name, items]) => ({ name, items, icon: Star }));
+    }
+
+    const pending = todos.filter(t => t.progressPercentage < 100);
+    const completed = todos.filter(t => t.progressPercentage >= 100);
+    const result = [];
+    if (pending.length > 0) result.push({ name: 'Pending Tasks', items: pending, icon: Target });
+    if (completed.length > 0) result.push({ name: 'Completed Today', items: completed, icon: CheckCircle2, isCompletedSection: true });
+    return result;
+  };
+
+  const groupedData = getGroupedTodos();
+
   return (
-    <div className="bg-[#0B0F19] border border-white/[0.08] rounded-2xl p-6 shadow-2xl">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div className="flex items-center gap-4">
-          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500/20 to-emerald-500/5 border border-emerald-500/20 flex items-center justify-center shadow-lg shadow-emerald-500/5">
-            <Target className="w-5 h-5 text-emerald-400" />
+    <div className="space-y-6">
+      {/* ─── SUMMARY DASHBOARD ─── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Time Pie Chart */}
+        <div className="lg:col-span-2 bg-[#0B0F19] border border-white/[0.08] rounded-2xl p-6 shadow-2xl relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+            <PieChartIcon className="w-24 h-24" />
           </div>
-          <div>
-            <h3 className="text-slate-100 font-semibold tracking-tight text-lg">Today's Tasks</h3>
-            <p className="text-slate-400 text-sm mt-0.5">Intelligent task prioritization</p>
-          </div>
-        </div>
-        <button
-          onClick={refreshTodos}
-          disabled={isRefreshing}
-          className="w-10 h-10 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-transparent hover:border-white/10 transition-all flex items-center justify-center disabled:opacity-50"
-        >
-          <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-        </button>
-      </div>
-
-      {/* Todo List */}
-      {pendingTodos.length === 0 && completedTodos.length === 0 ? (
-        <div className="text-center py-16 border border-dashed border-white/10 rounded-xl bg-slate-900/50">
-          <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-slate-800 border border-white/5 flex items-center justify-center">
-            <CheckCircle2 className="w-6 h-6 text-slate-500" />
-          </div>
-          <div className="text-slate-300 text-sm font-medium mb-1">You're all caught up!</div>
-          <div className="text-slate-500 text-xs max-w-xs mx-auto">
-            All your goals are on track or scheduled for other days.
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {/* Pending Todos Section */}
-          {pendingTodos.length > 0 && (
-            <div>
-              <div className="flex items-center gap-2 mb-4 pb-2 border-b border-white/10">
-                <Target className="w-4 h-4 text-emerald-400" />
-                <h4 className="text-sm font-semibold text-slate-200">Pending Tasks</h4>
-                <span className="text-[11px] font-medium text-slate-400 bg-slate-800 px-2 py-1 rounded ml-auto">
-                  {pendingTodos.length} {pendingTodos.length === 1 ? 'task' : 'tasks'}
-                </span>
-              </div>
-              <div className="space-y-4">
-                {pendingTodos.map((todo) => (
-                  <div
-                    key={todo.goalId}
-                    className={`group bg-slate-900/40 border rounded-xl p-5 transition-all duration-200 hover:bg-slate-800/60 ${
-                      todo.isCompletedToday 
-                        ? 'border-emerald-500/20 bg-emerald-500/5' 
-                        : 'border-white/10 hover:border-white/20'
-                    }`}
+          <div className="relative z-10 flex flex-col md:flex-row items-center gap-6">
+            <div className="w-full h-48 md:w-48 shrink-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={timeData}
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
                   >
-                    <div className="flex items-start gap-4">
-                      {/* Checkbox */}
-                      <button
-                        onClick={() => handleTodoClick(todo)}
-                        disabled={todo.isCompletedToday}
-                        className={`mt-1 w-6 h-6 shrink-0 rounded-full border-2 flex items-center justify-center transition-all ${
-                          todo.isCompletedToday 
-                            ? 'bg-emerald-500 border-emerald-500 text-white shadow-md shadow-emerald-500/20' 
-                            : 'border-slate-600 hover:border-slate-400 text-transparent hover:text-slate-400 bg-slate-800/50'
-                        }`}
-                      >
-                        {todo.isCompletedToday ? <CheckCircle2 className="w-4 h-4" /> : <Circle className="w-4 h-4" />}
-                      </button>
-
-                      {/* Content */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-4 mb-4">
-                          <div className="flex-1 min-w-0">
-                            <h4 className={`font-semibold text-base mb-2.5 truncate transition-colors ${
-                              todo.isCompletedToday ? 'text-slate-400 line-through' : 'text-slate-100 group-hover:text-white'
-                            }`}>
-                              {todo.title}
-                            </h4>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <PriorityBadge priority={todo.priority} display={todo.priorityDisplay} />
-                              <span className="text-[10px] text-slate-300 font-medium px-2.5 py-1 rounded-md bg-slate-800 border border-white/5 uppercase tracking-wide">
-                                {todo.goalType}
-                              </span>
-                              <span className="text-[10px] text-slate-300 font-medium px-2.5 py-1 rounded-md bg-slate-800 border border-white/5 uppercase tracking-wide">
-                                {todo.scheduleDetails}
-                              </span>
-                            </div>
-                          </div>
-                          
-                          {/* Time Estimate Badge */}
-                          <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-slate-800 border border-white/5 shrink-0">
-                            <Clock className="w-3.5 h-3.5 text-slate-400" />
-                            <span className="text-xs text-slate-300 font-medium">{todo.suggestedTimeMinutes}m</span>
-                          </div>
-                        </div>
-
-                        {/* Progress and Details Footer */}
-                        <div className="flex flex-wrap items-center gap-4 pt-4 border-t border-white/5">
-                          
-                          {/* Progress Stats */}
-                          <div className="flex items-center gap-3 bg-slate-900/50 rounded-lg p-2 border border-white/[0.03]">
-                            <ProgressRing percentage={todo.progressPercentage} />
-                            <div className="pr-2">
-                              <div className="text-sm text-slate-200 font-semibold leading-tight">
-                                {todo.currentProgress} <span className="text-slate-500 font-normal">/ {todo.targetProgress}</span>
-                              </div>
-                              <div className="text-[10px] text-slate-400 font-medium uppercase tracking-wider mt-0.5">
-                                {todo.isCompletedToday ? 'Completed' : 'In progress'}
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Streak Info */}
-                          {todo.currentStreak > 0 && (
-                            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-orange-500/10 border border-orange-500/20">
-                              <Star className="w-4 h-4 text-orange-400" />
-                              <span className="text-xs text-orange-400 font-semibold">{todo.currentStreak} day streak</span>
-                            </div>
-                          )}
-
-                          {/* Urgency Icon & Message */}
-                          {todo.urgencyReason && (
-                            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 border border-white/5 ml-auto">
-                              {getUrgencyIcon(todo)}
-                              <span className="text-xs text-slate-300 font-medium">
-                                {todo.urgencyReason}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                    {timeData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} stroke="none" />
+                    ))}
+                  </Pie>
+                  <RechartsTooltip 
+                    contentStyle={{ backgroundColor: '#0B0F19', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '12px' }}
+                    itemStyle={{ fontSize: '12px', color: '#cbd5e1' }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="absolute top-1/2 left-1/2 md:left-24 -translate-x-1/2 -translate-y-1/2 text-center">
+                <div className="text-2xl font-bold text-white leading-none">{totalCommittedMinutes}</div>
+                <div className="text-[10px] text-slate-500 uppercase font-medium mt-1">Mins</div>
+              </div>
+            </div>
+            
+            <div className="flex-1 space-y-4 w-full">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-slate-200 uppercase tracking-widest">Time Commitment</h4>
+                <div className="text-xs text-slate-500">{timeData.length} tasks scheduled</div>
+              </div>
+              <div className="space-y-2 max-h-32 overflow-y-auto pr-2 custom-scrollbar">
+                {timeData.slice(0, 4).map((item, idx) => (
+                  <div key={idx} className="flex items-center justify-between group/item">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: CHART_COLORS[idx % CHART_COLORS.length] }} />
+                      <span className="text-xs text-slate-400 truncate group-hover/item:text-slate-200 transition-colors">{item.name}</span>
                     </div>
+                    <span className="text-xs font-mono text-slate-500">{item.value}m</span>
                   </div>
                 ))}
+                {timeData.length > 4 && <div className="text-[10px] text-slate-600 pl-4">+ {timeData.length - 4} more tasks</div>}
               </div>
             </div>
-          )}
+          </div>
+        </div>
 
-          {/* Completed Todos Section */}
-          {completedTodos.length > 0 && (
+        {/* Priority Stats Card */}
+        <div className="bg-[#0B0F19] border border-white/[0.08] rounded-2xl p-6 shadow-2xl">
+          <h4 className="text-sm font-semibold text-slate-200 mb-6 uppercase tracking-widest flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-emerald-400" />
+            Priorities
+          </h4>
+          <div className="space-y-5">
+            {priorityDist.map((p) => (
+              <div key={p.name} className="space-y-1.5">
+                <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider">
+                  <span className="text-slate-400">{p.name}</span>
+                  <span style={{ color: p.color }}>{p.count}</span>
+                </div>
+                <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                  <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: `${(p.count / Math.max(...priorityDist.map(d => d.count), 1)) * 100}%` }}
+                    className="h-full rounded-full"
+                    style={{ backgroundColor: p.color }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ─── MAIN TODO SECTION ─── */}
+      <div className="bg-[#0B0F19] border border-white/[0.08] rounded-2xl p-6 shadow-2xl">
+        {/* Header with Grouping Controls */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-8">
+          <div className="flex items-center gap-4">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500/20 to-emerald-500/5 border border-emerald-500/20 flex items-center justify-center shadow-lg shadow-emerald-500/5">
+              <Target className="w-5 h-5 text-emerald-400" />
+            </div>
             <div>
-              <button
-                onClick={() => setShowCompleted(!showCompleted)}
-                className="flex items-center gap-2 w-full py-3 px-4 rounded-lg hover:bg-slate-900/30 transition-colors border border-white/5"
-              >
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <h4 className="text-sm font-semibold text-slate-300">Completed Today</h4>
-                <span className="text-[11px] font-medium text-slate-400 bg-slate-800 px-2 py-1 rounded ml-auto">
-                  {completedTodos.length}
-                </span>
-              </button>
-              
-              {showCompleted && (
-                <div className="space-y-3 mt-3">
-                  {completedTodos.map((todo) => (
-                    <div
-                      key={todo.goalId}
-                      className="group bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-4 transition-all duration-200 hover:bg-emerald-500/10"
-                    >
-                      <div className="flex items-start gap-4">
-                        {/* Checkbox */}
-                        <button
-                          onClick={() => handleTodoClick(todo)}
-                          className="mt-1 w-6 h-6 shrink-0 rounded-full border-2 bg-emerald-500 border-emerald-500 text-white shadow-md shadow-emerald-500/20 flex items-center justify-center"
-                        >
-                          <CheckCircle2 className="w-4 h-4" />
-                        </button>
+              <h3 className="text-slate-100 font-semibold tracking-tight text-lg">Today's Tasks</h3>
+              <p className="text-slate-400 text-sm mt-0.5">{todos.length} total across all goals</p>
+            </div>
+          </div>
 
-                        {/* Content */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="flex-1 min-w-0">
-                              <h4 className="font-semibold text-sm text-slate-400 line-through truncate">
-                                {todo.title}
-                              </h4>
-                              <div className="flex items-center gap-2 mt-2 flex-wrap">
-                                <span className={`text-[10px] font-medium px-2 py-0.5 rounded uppercase tracking-wide border ${
-                                  todo.progressPercentage > 100 
-                                    ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' 
-                                    : 'text-slate-400 bg-slate-800/50 border-white/5'
-                                }`}>
-                                  {Math.round(todo.progressPercentage)}%
-                                </span>
-                              </div>
-                            </div>
-                            
-                            {/* Quick log button */}
+          <div className="flex items-center gap-2 p-1 bg-white/[0.03] border border-white/5 rounded-xl">
+            {[
+              { id: 'status', icon: ListIcon, label: 'Status' },
+              { id: 'goal', icon: LayoutGrid, label: 'Goal' },
+              { id: 'priority', icon: SortAsc, label: 'Rank' },
+            ].map((mode) => (
+              <button
+                key={mode.id}
+                onClick={() => setGroupBy(mode.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  groupBy === mode.id
+                    ? 'bg-white text-black shadow-md'
+                    : 'text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                <mode.icon className="w-3.5 h-3.5" />
+                {mode.label}
+              </button>
+            ))}
+            <div className="w-px h-6 bg-white/10 mx-1" />
+            <button
+              onClick={refreshTodos}
+              disabled={isRefreshing}
+              className="w-8 h-8 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-all flex items-center justify-center disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+        </div>
+
+        {/* Content */}
+        {todos.length === 0 ? (
+          <div className="text-center py-16 border border-dashed border-white/10 rounded-xl bg-slate-900/50">
+            <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-slate-800 border border-white/5 flex items-center justify-center">
+              <CheckCircle2 className="w-6 h-6 text-slate-500" />
+            </div>
+            <div className="text-slate-300 text-sm font-medium mb-1">You're all caught up!</div>
+            <div className="text-slate-500 text-xs max-w-xs mx-auto">
+              All your goals are on track or scheduled for other days.
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-8">
+            {groupedData.map((group) => {
+              const SectionIcon = group.icon;
+              const isSectionCompleted = group.isCompletedSection;
+              
+              // Handle completed today section state
+              const showThisSection = isSectionCompleted ? showCompleted : true;
+              
+              return (
+                <div key={group.name} className="animate-in fade-in slide-in-from-top-2 duration-300">
+                  <div 
+                    className={`flex items-center gap-2 mb-4 pb-2 border-b border-white/10 ${isSectionCompleted ? 'cursor-pointer hover:border-white/20' : ''}`}
+                    onClick={() => isSectionCompleted && setShowCompleted(!showCompleted)}
+                  >
+                    <SectionIcon className={`w-4 h-4 ${isSectionCompleted ? 'text-emerald-500' : 'text-emerald-400'}`} />
+                    <h4 className="text-sm font-semibold text-slate-200 capitalize">{group.name}</h4>
+                    <span className="text-[11px] font-medium text-slate-400 bg-slate-800 px-2 py-1 rounded ml-auto">
+                      {group.items.length}
+                    </span>
+                  </div>
+                  
+                  {showThisSection && (
+                    <div className="space-y-4">
+                      {group.items.map((todo) => (
+                        <div
+                          key={todo.goalId}
+                          className={`group bg-slate-900/40 border rounded-xl p-4 transition-all duration-200 hover:bg-slate-800/60 ${
+                            todo.completedToday 
+                              ? 'border-emerald-500/20 bg-emerald-500/5' 
+                              : 'border-white/10 hover:border-white/20'
+                          }`}
+                        >
+                          <div className="flex items-start gap-4">
+                            {/* Checkbox */}
                             <button
                               onClick={() => handleTodoClick(todo)}
-                              className="px-3 py-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 rounded-md hover:bg-emerald-500/5 transition-colors shrink-0"
+                              className={`mt-1 w-6 h-6 shrink-0 rounded-full border-2 flex items-center justify-center transition-all ${
+                                todo.completedToday 
+                                  ? 'bg-emerald-500 border-emerald-500 text-white shadow-md shadow-emerald-500/20' 
+                                  : 'border-slate-600 hover:border-slate-400 text-transparent hover:text-slate-400 bg-slate-800/50'
+                              }`}
                             >
-                              + Log
+                              {todo.completedToday ? <CheckCircle2 className="w-4 h-4" /> : <Circle className="w-4 h-4" />}
                             </button>
+
+                            {/* Content */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start justify-between gap-4 mb-3">
+                                <div className="flex-1 min-w-0">
+                                  <h4 className={`font-semibold text-base mb-1.5 truncate transition-colors ${
+                                    todo.completedToday ? 'text-slate-400 line-through' : 'text-slate-100 group-hover:text-white'
+                                  }`}>
+                                    {todo.title}
+                                  </h4>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <PriorityBadge priority={todo.priority} display={todo.priorityDisplay} />
+                                    <span className="text-[10px] text-slate-300 font-medium px-2.5 py-1 rounded-md bg-slate-800 border border-white/5 uppercase tracking-wide">
+                                      {todo.goalType}
+                                    </span>
+                                    {todo.smartPriorityGroup !== 'NORMAL' && (
+                                      <span className={`text-[10px] font-bold px-2 py-1 rounded-md uppercase tracking-widest ${
+                                        todo.smartPriorityGroup === 'URGENT' ? 'bg-red-500/20 text-red-400' : 'bg-slate-800 text-slate-400'
+                                      }`}>
+                                        {todo.smartPriorityGroup}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                
+                                {/* Time Estimate Badge */}
+                                <div className="flex flex-col items-end gap-1 shrink-0">
+                                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-slate-800 border border-white/5">
+                                    <Clock className="w-3.5 h-3.5 text-slate-400" />
+                                    <span className="text-xs text-slate-300 font-medium">{todo.suggestedTimeMinutes}m</span>
+                                  </div>
+                                  <div className="text-[10px] text-slate-500 uppercase tracking-tighter">Budget</div>
+                                </div>
+                              </div>
+
+                              {/* Footer Action items */}
+                              <div className="flex flex-wrap items-center gap-4 pt-4 border-t border-white/5">
+                                <div className="flex items-center gap-3">
+                                  <ProgressRing percentage={todo.progressPercentage} size={36} />
+                                  <div>
+                                    <div className="text-xs text-slate-200 font-bold leading-tight">
+                                      {todo.currentProgress} <span className="text-slate-500 font-normal">/ {todo.targetProgress}</span>
+                                    </div>
+                                    <div className="text-[9px] text-slate-500 uppercase font-medium">Progress</div>
+                                  </div>
+                                </div>
+
+                                {todo.urgencyReason && (
+                                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/5 ml-auto">
+                                    <span className="text-xs text-slate-300 font-medium">
+                                      {todo.urgencyReason}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
                           </div>
                         </div>
-                      </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+              );
+            })}
+          </div>
+        )}
 
-      {/* Footer Note */}
-      <div className="mt-8 pt-5 border-t border-white/[0.08]">
-        <p className="text-[11px] text-slate-500 text-center font-medium uppercase tracking-wider">
-          Tasks prioritized by goal priority, streak status & adherence
-        </p>
+        {/* Footer Note */}
+        <div className="mt-8 pt-5 border-t border-white/[0.08]">
+          <p className="text-[11px] text-slate-500 text-center font-medium uppercase tracking-wider">
+            Prioritization grouped by {groupBy} • Updates live from Northstar Engine
+          </p>
+        </div>
       </div>
     </div>
   );
