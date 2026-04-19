@@ -890,7 +890,7 @@ export default function GoalDrawer({ isOpen, onClose, onSuccess, parentGoal, edi
 
     setForm({
       title: g.title || '', description: g.description || '',
-      startDate: toDateInputValue(g.startDate) || toDateInputValue(new Date()),
+      startDate: isEdit ? toDateInputValue(g.startDate) : toDateInputValue(g.startDate) || toDateInputValue(new Date()),
       targetDate: toDateInputValue(g.targetDate),
       goalType: g.goalType || '', priority: g.priority || 'MEDIUM',
       isContainer: g.isLeaf === false, isMilestone: Boolean(g.isMilestone),
@@ -974,9 +974,14 @@ export default function GoalDrawer({ isOpen, onClose, onSuccess, parentGoal, edi
         payload.momentumWeight = form.momentumWeight !== '' ? parseInt(form.momentumWeight) : undefined;
         payload.progressWeight = form.progressWeight !== '' ? parseInt(form.progressWeight) : undefined;
       }
+    }
 
-      payload.startDate = form.startDate ? `${form.startDate}T00:00:00` : undefined;
-      payload.targetDate = form.targetDate ? `${form.targetDate}T23:59:59` : null;
+    // Always include dates if present, regardless of container status
+    if (form.startDate) {
+      payload.startDate = `${form.startDate}T00:00:00`;
+    }
+    if (form.targetDate) {
+      payload.targetDate = `${form.targetDate}T23:59:59`;
     }
 
     return payload;

@@ -75,3 +75,18 @@ export function formatHealthScore(score) {
   if (score === null || score === undefined) return '–';
   return `${Math.round(score)}`;
 }
+
+// Format individual score component for display
+export function formatScoreComponent(score, label) {
+  if (score === null || score === undefined) return `${label}: –`;
+  return `${label}: ${Math.round(score)}`;
+}
+
+// Get color for individual score component
+export function getScoreComponentColor(score) {
+  if (score === null || score === undefined) return 'text-slate-500';
+  if (score >= 80) return 'text-green-400';
+  if (score >= 60) return 'text-blue-400';
+  if (score >= 40) return 'text-yellow-400';
+  return 'text-red-400';
+}

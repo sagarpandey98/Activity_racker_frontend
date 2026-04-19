@@ -105,5 +105,5 @@ export function isLeafGoal(goal) {
 
 // Check if goal has tracking configured
 export function isTrackedGoal(goal) {
-  return goal.isTracked === true;
+  return goal.scheduleSpec != null;
 }

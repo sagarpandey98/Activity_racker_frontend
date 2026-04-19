@@ -47,6 +47,9 @@ export const goalsApi = {
     trackerClient.patch(`/goals/${id}/health/recalculate`)
       .then(r => r.data),
 
+  getTodosForDate: (date) =>
+    trackerClient.get(`/todos/date?date=${date}`).then(r => r.data),
+
   bulkUpdateProgress: (updates) =>
     trackerClient.patch('/goals/progress/bulk', updates)
       .then(r => r.data),
@@ -82,6 +85,10 @@ export const smartTodoApi = {
   // Get today's smart todo list
   getTodayTodos: () =>
     trackerClient.get('/todos/today').then(r => r.data),
+
+  // Get smart todos for a specific date (YYYY-MM-DD)
+  getTodosForDate: (date) =>
+    trackerClient.get(`/todos/date?date=${date}`).then(r => r.data),
 
   // Refresh today's todo list
   refreshTodos: () =>

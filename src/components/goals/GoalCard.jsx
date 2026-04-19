@@ -6,8 +6,9 @@ import {
   getPriorityColor,
   getPriorityLabel,
   getStatusColor,
+  isTrackedGoal,
 } from '@/lib/utils/goalUtils';
-import { getHealthBadgeClass, getHealthColor, getHealthStatus } from '@/lib/utils/healthUtils';
+import { getHealthBadgeClass, getHealthColor, getHealthStatus, formatScoreComponent, getScoreComponentColor } from '@/lib/utils/healthUtils';
 
 function Badge({ className, children }) {
   return (
@@ -19,6 +20,65 @@ function Badge({ className, children }) {
     >
       {children}
     </span>
+  );
+}
+
+function HealthScoreTooltip({ goal, children }) {
+  const [showTooltip, setShowTooltip] = useState(false);
+  const tooltipRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (tooltipRef.current && !tooltipRef.current.contains(event.target)) {
+        setShowTooltip(false);
+      }
+    };
+
+    if (showTooltip) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showTooltip]);
+
+  const hasScoreComponents = goal?.consistencyScore !== null || 
+                           goal?.momentumScore !== null || 
+                           goal?.progressScore !== null;
+
+  if (!hasScoreComponents) {
+    return children;
+  }
+
+  return (
+    <div className="relative" ref={tooltipRef}>
+      <div
+        onMouseEnter={() => setShowTooltip(true)}
+        onMouseLeave={() => setShowTooltip(false)}
+        onClick={() => setShowTooltip(!showTooltip)}
+        className="cursor-help"
+      >
+        {children}
+      </div>
+      
+      {showTooltip && (
+        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 bg-[#0a0a1a] border border-white/10 rounded-lg p-3 shadow-xl z-50 whitespace-nowrap">
+          <div className="text-xs space-y-1">
+            <div className={getScoreComponentColor(goal?.consistencyScore)}>
+              {formatScoreComponent(goal?.consistencyScore, 'Consistency')}
+            </div>
+            <div className={getScoreComponentColor(goal?.momentumScore)}>
+              {formatScoreComponent(goal?.momentumScore, 'Momentum')}
+            </div>
+            <div className={getScoreComponentColor(goal?.progressScore)}>
+              {formatScoreComponent(goal?.progressScore, 'Progress')}
+            </div>
+          </div>
+          <div className="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1 w-2 h-2 bg-[#0a0a1a] border-r border-t border-white/10 rotate-45"></div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -49,7 +109,7 @@ export default function GoalCard({
 
   const isLeaf = goal?.isLeaf === true;
   const hasChildren = Array.isArray(goal?.childGoals) && goal.childGoals.length > 0;
-  const isTracked = goal?.isTracked === true;
+  const isTracked = isTrackedGoal(goal);
   const currentStreak = Number(goal?.currentStreak || 0);
   const progressPercentage = Number(goal?.progressPercentage ?? 0);
 
@@ -128,9 +188,11 @@ export default function GoalCard({
           ) : null}
 
           {healthScore !== null && healthScore !== undefined ? (
-            <span className={['text-xs px-2 py-0.5 rounded-full border', getHealthBadgeClass(healthScore)].join(' ')}>
-              {Math.round(Number(healthScore))} {healthStatus}
-            </span>
+            <HealthScoreTooltip goal={goal}>
+              <span className={['text-xs px-2 py-0.5 rounded-full border', getHealthBadgeClass(healthScore)].join(' ')}>
+                {Math.round(Number(healthScore))} {healthStatus}
+              </span>
+            </HealthScoreTooltip>
           ) : null}
 
           {isLeaf && !isTracked ? (

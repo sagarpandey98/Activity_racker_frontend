@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { GitBranch, List, Plus, Target } from 'lucide-react';
 import { goalsApi } from '@/lib/api/goalsApi';
+import { isTrackedGoal } from '@/lib/utils/goalUtils';
 import GoalTree from '@/components/goals/GoalTree';
 import GoalList from '@/components/goals/GoalList';
 import GoalDrawer from '@/components/goals/GoalDrawer';
@@ -88,7 +89,7 @@ export default function GoalsPage() {
     // Check if this is a tracked leaf goal
     // that will become a parent
     const isTrackedLeaf = goal?.isLeaf === true
-      && goal?.isTracked === true
+      && isTrackedGoal(goal)
 
     if (isTrackedLeaf) {
       setConversionWarningGoal(goal)

@@ -115,13 +115,14 @@ export default function SmartTodo() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
   const [groupBy, setGroupBy] = useState('status'); // 'status', 'goal', 'priority'
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]); // Default to today
   const { setIsQuickLogOpen, setPrefillGoal } = useUIStore();
 
   const fetchTodos = async () => {
     try {
       setLoading(true);
       setError('');
-      const response = await smartTodoApi.getTodayTodos();
+      const response = await smartTodoApi.getTodosForDate(selectedDate);
       setTodos(response.data || response || []);
     } catch (err) {
       const message = err.response?.data?.message || err.message || 'Failed to load todos';
@@ -150,7 +151,7 @@ export default function SmartTodo() {
 
   useEffect(() => {
     fetchTodos();
-  }, []);
+  }, [selectedDate]);
 
   const getUrgencyIcon = (todo) => {
     if (todo.streakAtRisk) return <AlertTriangle className="w-4 h-4 text-orange-400" />;
@@ -339,8 +340,21 @@ export default function SmartTodo() {
               <Target className="w-5 h-5 text-emerald-400" />
             </div>
             <div>
-              <h3 className="text-slate-100 font-semibold tracking-tight text-lg">Today's Tasks</h3>
-              <p className="text-slate-400 text-sm mt-0.5">{todos.length} total across all goals</p>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-slate-400" />
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  />
+                </div>
+                <h3 className="text-slate-100 font-semibold tracking-tight text-lg">
+                  {selectedDate === new Date().toISOString().split('T')[0] ? "Today's Tasks" : `Tasks for ${new Date(selectedDate).toLocaleDateString()}`}
+                </h3>
+                <p className="text-slate-400 text-sm mt-0.5">{todos.length} total across all goals</p>
+              </div>
             </div>
           </div>
 
