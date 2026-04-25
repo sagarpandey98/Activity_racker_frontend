@@ -128,65 +128,154 @@ function getSubChildFrequency(childFreq) {
   }
 }
 
+function toInt(value) {
+  const parsed = parseInt(value, 10);
+  return Number.isInteger(parsed) ? parsed : null;
+}
+
+function mapWeekKeyToValue(weekKey) {
+  const numeric = toInt(String(weekKey || '').replace('W', ''));
+  return numeric && numeric >= 1 && numeric <= 5 ? numeric : null;
+}
+
+function mapDayKeyToValue(dayKey) {
+  const numeric = toInt(String(dayKey || '').replace('D', ''));
+  return numeric && numeric >= 1 && numeric <= 31 ? numeric : null;
+}
+
+function mapQuarterMonthKeyToValue(monthKey) {
+  const numeric = toInt(String(monthKey || '').replace('M', ''));
+  return numeric && numeric >= 1 && numeric <= 3 ? numeric : null;
+}
+
+function mapMonthNameToValue(monthName) {
+  const idx = MONTHS.findIndex((m) => m.key === monthName);
+  return idx >= 0 ? idx + 1 : null;
+}
+
+function mapMonthValueToName(monthValue) {
+  const idx = toInt(monthValue);
+  return idx && idx >= 1 && idx <= 12 ? MONTHS[idx - 1].key : null;
+}
+
+function createRequirements(minValue, maxValue) {
+  const minCheckins = toInt(minValue);
+  const maxCheckins = toInt(maxValue);
+  if (minCheckins == null && maxCheckins == null) return undefined;
+  if (minCheckins != null && maxCheckins != null && maxCheckins < minCheckins) return undefined;
+  return {
+    minCheckins: minCheckins ?? 0,
+    maxCheckins: maxCheckins ?? null,
+  };
+}
+
 /** Build scheduleSpec JSON from visual form state */
 function buildScheduleSpec(form) {
   if (!form.scheduleFrequency) return undefined;
 
   const spec = {
-    frequency: form.scheduleFrequency,
-    flexible: form.scheduleFlexible,
+    version: 2,
+    scheduleType: form.scheduleFrequency,
+    weekStartsOn: 'MONDAY',
+    weekOfMonthModel: 'DAY_BUCKETS',
+    rules: [],
+    exclusions: [],
   };
 
   try { spec.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { /* ignore */ }
+  if (!spec.timezone) spec.timezone = 'UTC';
 
-  // Map min/max search fields to scheduleSpec constraints
-  const minC = parseInt(form.minimumSessionPeriod);
-  const maxC = parseInt(form.maximumSessionPeriod);
+  const requirements = createRequirements(form.minimumSessionPeriod, form.maximumSessionPeriod);
+  if (requirements) spec.requirements = requirements;
 
-  spec.constraints = {
-    minCheckinsRequired: Number.isInteger(minC) ? minC : 1, // Default 1
-  };
-  if (Number.isInteger(maxC)) {
-    spec.constraints.maxCheckinsAllowed = maxC;
+  if (form.scheduleFlexible || form.scheduleSegments.length === 0) {
+    return spec;
   }
 
-  // Segments only in specific mode
-  if (!form.scheduleFlexible && form.scheduleSegments.length > 0) {
-    const childFreq = getChildFrequency(form.scheduleFrequency, form.scheduleMonthlyMode);
-    const subFreq = getSubChildFrequency(childFreq);
-
-    const withChildren = form.scheduleSegments.filter((s) => s.children?.length > 0);
-    const withoutChildren = form.scheduleSegments.filter((s) => !s.children?.length);
-
-    const segments = [];
-
-    // Group items without children into one segment
-    if (withoutChildren.length > 0) {
-      segments.push({
-        frequency: childFreq,
-        values: withoutChildren.map((s) => s.value),
-        flexible: false,
-      });
+  if (form.scheduleFrequency === 'DAILY') {
+    const timeValues = form.scheduleSegments
+      .map((s) => s.value)
+      .filter(Boolean);
+    if (timeValues.length > 0) {
+      spec.rules.push({ scope: 'TIME_OF_DAY', values: timeValues, mode: 'STRICT' });
     }
+    return spec;
+  }
 
-    // Each item with children gets its own segment
-    withChildren.forEach((seg) => {
-      const segment = {
-        frequency: childFreq,
+  if (form.scheduleFrequency === 'WEEKLY') {
+    form.scheduleSegments.forEach((seg) => {
+      if (!seg?.value) return;
+      const rule = {
+        scope: 'DAY_OF_WEEK',
         values: [seg.value],
-        flexible: false,
+        mode: 'STRICT',
       };
-      if (subFreq) {
-        segment.segments = [{
-          frequency: subFreq,
+      if (Array.isArray(seg.children) && seg.children.length > 0) {
+        rule.rules = [{
+          scope: 'TIME_OF_DAY',
           values: [...seg.children],
-          flexible: false,
+          mode: 'STRICT',
         }];
       }
-      segments.push(segment);
+      spec.rules.push(rule);
     });
+    return spec;
+  }
 
-    if (segments.length > 0) spec.segments = segments;
+  if (form.scheduleFrequency === 'MONTHLY') {
+    if (form.scheduleMonthlyMode === 'days') {
+      const dayValues = form.scheduleSegments
+        .map((s) => mapDayKeyToValue(s.value))
+        .filter((v) => v != null);
+      if (dayValues.length > 0) {
+        spec.rules.push({ scope: 'DAY_OF_MONTH', values: dayValues, mode: 'STRICT' });
+      }
+      return spec;
+    }
+
+    form.scheduleSegments.forEach((seg) => {
+      const weekValue = mapWeekKeyToValue(seg?.value);
+      if (!weekValue) return;
+      if (Array.isArray(seg.children) && seg.children.length > 0) {
+        spec.rules.push({
+          scope: 'WEEK_OF_MONTH',
+          values: [weekValue],
+          mode: 'STRICT',
+          rules: [{
+            scope: 'DAY_OF_WEEK',
+            values: [...seg.children],
+            mode: 'STRICT',
+          }],
+        });
+      } else {
+        spec.rules.push({
+          scope: 'WEEK_OF_MONTH',
+          values: [weekValue],
+          mode: 'FLEXIBLE',
+        });
+      }
+    });
+    return spec;
+  }
+
+  if (form.scheduleFrequency === 'QUARTERLY') {
+    const values = form.scheduleSegments
+      .map((s) => mapQuarterMonthKeyToValue(s.value))
+      .filter((v) => v != null);
+    if (values.length > 0) {
+      spec.rules.push({ scope: 'MONTH_OF_QUARTER', values, mode: 'STRICT' });
+    }
+    return spec;
+  }
+
+  if (form.scheduleFrequency === 'YEARLY') {
+    const values = form.scheduleSegments
+      .map((s) => mapMonthNameToValue(s.value))
+      .filter((v) => v != null);
+    if (values.length > 0) {
+      spec.rules.push({ scope: 'MONTH_OF_YEAR', values, mode: 'STRICT' });
+    }
+    return spec;
   }
 
   return spec;
@@ -194,32 +283,134 @@ function buildScheduleSpec(form) {
 
 /** Parse existing scheduleSpec back into visual form state (for edit mode) */
 function parseScheduleSpec(spec) {
-  if (!spec || !spec.frequency) return {};
+  if (!spec) return {};
+  // Backward compatibility with legacy schedule format.
+  if (spec.frequency) {
+    const result = {
+      scheduleFrequency: spec.frequency,
+      scheduleFlexible: spec.flexible !== false,
+      scheduleSegments: [],
+      scheduleMonthlyMode: 'weeks',
+    };
+
+    if (Array.isArray(spec.segments)) {
+      for (const seg of spec.segments) {
+        const values = Array.isArray(seg.values) ? seg.values : [];
+        const children = seg.segments?.[0]?.values || [];
+        for (const val of values) {
+          result.scheduleSegments.push({
+            value: val,
+            children: children.length > 0 ? [...children] : [],
+          });
+        }
+      }
+      if (spec.frequency === 'MONTHLY' && spec.segments.length > 0) {
+        result.scheduleMonthlyMode = spec.segments[0].frequency === 'WEEKLY' ? 'weeks' : 'days';
+      }
+    }
+
+    return result;
+  }
+  if (!spec.scheduleType) return {};
 
   const result = {
-    scheduleFrequency: spec.frequency,
-    scheduleFlexible: spec.flexible !== false,
+    scheduleFrequency: spec.scheduleType,
+    scheduleFlexible: true,
     scheduleSegments: [],
     scheduleMonthlyMode: 'weeks',
   };
 
-  if (Array.isArray(spec.segments)) {
-    for (const seg of spec.segments) {
-      const values = Array.isArray(seg.values) ? seg.values : [];
-      const children = seg.segments?.[0]?.values || [];
-      for (const val of values) {
-        result.scheduleSegments.push({
-          value: val,
-          children: children.length > 0 ? [...children] : [],
-        });
-      }
-    }
-    if (spec.frequency === 'MONTHLY' && spec.segments.length > 0) {
-      result.scheduleMonthlyMode = spec.segments[0].frequency === 'WEEKLY' ? 'weeks' : 'days';
-    }
+  const rules = Array.isArray(spec.rules) ? spec.rules : [];
+  if (rules.length === 0) return result;
+  result.scheduleFlexible = false;
+
+  if (result.scheduleFrequency === 'DAILY') {
+    const rule = rules.find((r) => r.scope === 'TIME_OF_DAY');
+    const values = Array.isArray(rule?.values) ? rule.values : [];
+    result.scheduleSegments = values.map((time) => ({ value: time, children: [] }));
+    return result;
   }
 
+  if (result.scheduleFrequency === 'WEEKLY') {
+    result.scheduleSegments = rules
+      .filter((r) => r.scope === 'DAY_OF_WEEK')
+      .flatMap((r) => {
+        const dayValues = Array.isArray(r.values) ? r.values : [];
+        const timeRule = Array.isArray(r.rules) ? r.rules.find((child) => child.scope === 'TIME_OF_DAY') : null;
+        const timeValues = Array.isArray(timeRule?.values) ? timeRule.values : [];
+        return dayValues.map((day) => ({ value: day, children: [...timeValues] }));
+      });
+    return result;
+  }
+
+  if (result.scheduleFrequency === 'MONTHLY') {
+    const dayRule = rules.find((r) => r.scope === 'DAY_OF_MONTH');
+    if (dayRule) {
+      result.scheduleMonthlyMode = 'days';
+      result.scheduleSegments = (Array.isArray(dayRule.values) ? dayRule.values : [])
+        .map((day) => toInt(day))
+        .filter((day) => day != null)
+        .map((day) => ({ value: `D${day}`, children: [] }));
+      return result;
+    }
+
+    result.scheduleMonthlyMode = 'weeks';
+    result.scheduleSegments = rules
+      .filter((r) => r.scope === 'WEEK_OF_MONTH')
+      .flatMap((r) => {
+        const weekValues = Array.isArray(r.values) ? r.values : [];
+        const dayRuleChild = Array.isArray(r.rules) ? r.rules.find((child) => child.scope === 'DAY_OF_WEEK') : null;
+        const dayValues = Array.isArray(dayRuleChild?.values) ? dayRuleChild.values : [];
+        return weekValues
+          .map((week) => toInt(week))
+          .filter((week) => week != null)
+          .map((week) => ({ value: `W${week}`, children: [...dayValues] }));
+      });
+    return result;
+  }
+
+  if (result.scheduleFrequency === 'QUARTERLY') {
+    const monthRule = rules.find((r) => r.scope === 'MONTH_OF_QUARTER');
+    result.scheduleSegments = (Array.isArray(monthRule?.values) ? monthRule.values : [])
+      .map((month) => toInt(month))
+      .filter((month) => month != null)
+      .map((month) => ({ value: `M${month}`, children: [] }));
+    return result;
+  }
+
+  if (result.scheduleFrequency === 'YEARLY') {
+    const monthRule = rules.find((r) => r.scope === 'MONTH_OF_YEAR');
+    result.scheduleSegments = (Array.isArray(monthRule?.values) ? monthRule.values : [])
+      .map((month) => mapMonthValueToName(month))
+      .filter(Boolean)
+      .map((monthKey) => ({ value: monthKey, children: [] }));
+    return result;
+  }
+
+  result.scheduleFlexible = true;
+  result.scheduleSegments = [];
   return result;
+}
+
+function getRequirementsFromScheduleSpec(spec) {
+  if (!spec || typeof spec !== 'object') return {};
+  if (spec.version === 2 && spec.requirements) {
+    const min = toInt(spec.requirements.minCheckins);
+    const max = toInt(spec.requirements.maxCheckins);
+    return {
+      minimumSessionPeriod: min ?? '',
+      maximumSessionPeriod: max ?? '',
+    };
+  }
+  if (spec.constraints) {
+    const min = toInt(spec.constraints.minCheckinsRequired);
+    const max = toInt(spec.constraints.maxCheckinsAllowed);
+    return {
+      minimumSessionPeriod: min ?? '',
+      maximumSessionPeriod: max ?? '',
+    };
+  }
+  return {};
 }
 
 /** Build a human-readable summary of the configured schedule */
@@ -887,6 +1078,7 @@ export default function GoalDrawer({ isOpen, onClose, onSuccess, parentGoal, edi
     })();
 
     const parsed = parseScheduleSpec(g.scheduleSpec);
+    const scheduleRequirements = getRequirementsFromScheduleSpec(g.scheduleSpec);
 
     setForm({
       title: g.title || '', description: g.description || '',
@@ -896,8 +1088,8 @@ export default function GoalDrawer({ isOpen, onClose, onSuccess, parentGoal, edi
       isContainer: g.isLeaf === false, isMilestone: Boolean(g.isMilestone),
       metric: g.metric || 'COUNT', targetOperator: g.targetOperator || 'GREATER_THAN',
       targetValue: g.targetValue ?? '', currentValue: g.currentValue ?? 0,
-      minimumSessionPeriod: g.minimumSessionPeriod ?? '',
-      maximumSessionPeriod: g.maximumSessionPeriod ?? '',
+      minimumSessionPeriod: scheduleRequirements.minimumSessionPeriod ?? g.minimumSessionPeriod ?? '',
+      maximumSessionPeriod: scheduleRequirements.maximumSessionPeriod ?? g.maximumSessionPeriod ?? '',
       minimumTimeCommittedPeriod: g.minimumTimeCommittedPeriod ?? '',
       scheduleFrequency: parsed.scheduleFrequency || '',
       scheduleFlexible: parsed.scheduleFlexible ?? true,

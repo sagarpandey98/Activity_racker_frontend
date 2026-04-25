@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { 
   CheckCircle2, 
   Circle, 
@@ -23,11 +23,7 @@ import {
   Pie, 
   Cell, 
   ResponsiveContainer, 
-  Tooltip as RechartsTooltip,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis
+  Tooltip as RechartsTooltip
 } from 'recharts';
 import { smartTodoApi } from '@/lib/api/goalsApi';
 import useUIStore from '@/lib/store/uiStore';
@@ -110,6 +106,8 @@ function ProgressRing({ percentage, size = 48 }) {
 
 export default function SmartTodo() {
   const [todos, setTodos] = useState([]);
+  const [summary, setSummary] = useState(null);
+  const [meta, setMeta] = useState({ date: '', timezone: '', listType: '' });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -123,7 +121,18 @@ export default function SmartTodo() {
       setLoading(true);
       setError('');
       const response = await smartTodoApi.getTodosForDate(selectedDate);
-      setTodos(response.data || response || []);
+      const items = Array.isArray(response?.items)
+        ? response.items
+        : Array.isArray(response)
+          ? response
+          : [];
+      setTodos(items);
+      setSummary(response?.summary || null);
+      setMeta({
+        date: response?.date || selectedDate,
+        timezone: response?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+        listType: response?.listType || (selectedDate === new Date().toISOString().split('T')[0] ? 'TODAY' : 'DATE'),
+      });
     } catch (err) {
       const message = err.response?.data?.message || err.message || 'Failed to load todos';
       setError(message);
@@ -153,16 +162,14 @@ export default function SmartTodo() {
     fetchTodos();
   }, [selectedDate]);
 
-  const getUrgencyIcon = (todo) => {
-    if (todo.streakAtRisk) return <AlertTriangle className="w-4 h-4 text-orange-400" />;
-    if (todo.behindSchedule) return <TrendingUp className="w-4 h-4 text-yellow-400" />;
-    if (todo.scheduledForToday) return <Calendar className="w-4 h-4 text-blue-400" />;
-    return <Circle className="w-4 h-4 text-slate-500" />;
+  const getProgressPercentage = (todo) => {
+    if (typeof todo.periodProgressPercentage === 'number') return todo.periodProgressPercentage;
+    if (typeof todo.progressPercentage === 'number') return todo.progressPercentage;
+    const target = Number(todo.targetProgress);
+    const current = Number(todo.currentProgress);
+    if (target > 0 && Number.isFinite(current)) return (current / target) * 100;
+    return 0;
   };
-
-  // Separate todos into pending and completed based on progress percentage
-  const pendingTodos = todos.filter(todo => todo.progressPercentage < 100);
-  const completedTodos = todos.filter(todo => todo.progressPercentage >= 100);
 
   if (loading) {
     return (
@@ -237,11 +244,25 @@ export default function SmartTodo() {
         .map(([name, items]) => ({ name, items, icon: Star }));
     }
 
-    const pending = todos.filter(t => t.progressPercentage < 100);
-    const completed = todos.filter(t => t.progressPercentage >= 100);
+    const BUCKET_META = {
+      MUST_DO_TODAY: { label: 'Must Do Today', icon: AlertTriangle, completed: false },
+      CATCH_UP_TODAY: { label: 'Catch Up Today', icon: TrendingUp, completed: false },
+      GOOD_TO_DO_TODAY: { label: 'Good To Do Today', icon: Target, completed: false },
+      COMPLETED_TODAY: { label: 'Completed Today', icon: CheckCircle2, completed: true },
+    };
+    const bucketOrder = ['MUST_DO_TODAY', 'CATCH_UP_TODAY', 'GOOD_TO_DO_TODAY', 'COMPLETED_TODAY'];
     const result = [];
-    if (pending.length > 0) result.push({ name: 'Pending Tasks', items: pending, icon: Target });
-    if (completed.length > 0) result.push({ name: 'Completed Today', items: completed, icon: CheckCircle2, isCompletedSection: true });
+    bucketOrder.forEach((bucketKey) => {
+      const items = todos.filter((t) => t.todoStatus === bucketKey);
+      if (items.length > 0) {
+        result.push({
+          name: BUCKET_META[bucketKey].label,
+          items: [...items].sort((a, b) => (a.displayRank || 999) - (b.displayRank || 999)),
+          icon: BUCKET_META[bucketKey].icon,
+          isCompletedSection: BUCKET_META[bucketKey].completed,
+        });
+      }
+    });
     return result;
   };
 
@@ -353,7 +374,9 @@ export default function SmartTodo() {
                 <h3 className="text-slate-100 font-semibold tracking-tight text-lg">
                   {selectedDate === new Date().toISOString().split('T')[0] ? "Today's Tasks" : `Tasks for ${new Date(selectedDate).toLocaleDateString()}`}
                 </h3>
-                <p className="text-slate-400 text-sm mt-0.5">{todos.length} total across all goals</p>
+                <p className="text-slate-400 text-sm mt-0.5">
+                  {(summary?.totalItems ?? todos.length)} tasks • {meta.timezone || 'UTC'} • {meta.listType || 'DATE'}
+                </p>
               </div>
             </div>
           </div>
@@ -387,6 +410,32 @@ export default function SmartTodo() {
             </button>
           </div>
         </div>
+        {summary ? (
+          <div className="mb-6 space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              {[
+                { label: 'Must Do', value: summary.mustDoTodayCount || 0, tone: 'text-red-300 border-red-500/20 bg-red-500/10' },
+                { label: 'Catch Up', value: summary.catchUpTodayCount || 0, tone: 'text-amber-300 border-amber-500/20 bg-amber-500/10' },
+                { label: 'Good To Do', value: summary.goodToDoTodayCount || 0, tone: 'text-blue-300 border-blue-500/20 bg-blue-500/10' },
+                { label: 'Completed', value: summary.completedTodayCount || 0, tone: 'text-emerald-300 border-emerald-500/20 bg-emerald-500/10' },
+              ].map((chip) => (
+                <span key={chip.label} className={`text-[11px] px-2.5 py-1 rounded-md border font-semibold ${chip.tone}`}>
+                  {chip.label}: {chip.value}
+                </span>
+              ))}
+            </div>
+            {Array.isArray(summary.recommendedFocusTitles) && summary.recommendedFocusTitles.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] text-slate-500 uppercase tracking-wider">Top Focus</span>
+                {summary.recommendedFocusTitles.slice(0, 3).map((title) => (
+                  <span key={title} className="text-[11px] px-2.5 py-1 rounded-md border border-emerald-500/20 bg-emerald-500/10 text-emerald-200">
+                    {title}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         {/* Content */}
         {todos.length === 0 ? (
@@ -396,7 +445,7 @@ export default function SmartTodo() {
             </div>
             <div className="text-slate-300 text-sm font-medium mb-1">You're all caught up!</div>
             <div className="text-slate-500 text-xs max-w-xs mx-auto">
-              All your goals are on track or scheduled for other days.
+              Nothing urgent for this date. You can still plan ahead from this view.
             </div>
           </div>
         ) : (
@@ -427,7 +476,7 @@ export default function SmartTodo() {
                         <div
                           key={todo.goalId}
                           className={`group bg-slate-900/40 border rounded-xl p-4 transition-all duration-200 hover:bg-slate-800/60 ${
-                            todo.completedToday 
+                            todo.todoStatus === 'COMPLETED_TODAY' 
                               ? 'border-emerald-500/20 bg-emerald-500/5' 
                               : 'border-white/10 hover:border-white/20'
                           }`}
@@ -437,12 +486,12 @@ export default function SmartTodo() {
                             <button
                               onClick={() => handleTodoClick(todo)}
                               className={`mt-1 w-6 h-6 shrink-0 rounded-full border-2 flex items-center justify-center transition-all ${
-                                todo.completedToday 
+                                todo.todoStatus === 'COMPLETED_TODAY' 
                                   ? 'bg-emerald-500 border-emerald-500 text-white shadow-md shadow-emerald-500/20' 
                                   : 'border-slate-600 hover:border-slate-400 text-transparent hover:text-slate-400 bg-slate-800/50'
                               }`}
                             >
-                              {todo.completedToday ? <CheckCircle2 className="w-4 h-4" /> : <Circle className="w-4 h-4" />}
+                              {todo.todoStatus === 'COMPLETED_TODAY' ? <CheckCircle2 className="w-4 h-4" /> : <Circle className="w-4 h-4" />}
                             </button>
 
                             {/* Content */}
@@ -450,7 +499,7 @@ export default function SmartTodo() {
                               <div className="flex items-start justify-between gap-4 mb-3">
                                 <div className="flex-1 min-w-0">
                                   <h4 className={`font-semibold text-base mb-1.5 truncate transition-colors ${
-                                    todo.completedToday ? 'text-slate-400 line-through' : 'text-slate-100 group-hover:text-white'
+                                    todo.todoStatus === 'COMPLETED_TODAY' ? 'text-slate-400 line-through' : 'text-slate-100 group-hover:text-white'
                                   }`}>
                                     {todo.title}
                                   </h4>
@@ -459,13 +508,18 @@ export default function SmartTodo() {
                                     <span className="text-[10px] text-slate-300 font-medium px-2.5 py-1 rounded-md bg-slate-800 border border-white/5 uppercase tracking-wide">
                                       {todo.goalType}
                                     </span>
-                                    {todo.smartPriorityGroup !== 'NORMAL' && (
+                                    {todo.recommendedFocus && (
                                       <span className={`text-[10px] font-bold px-2 py-1 rounded-md uppercase tracking-widest ${
-                                        todo.smartPriorityGroup === 'URGENT' ? 'bg-red-500/20 text-red-400' : 'bg-slate-800 text-slate-400'
+                                        'bg-emerald-500/20 text-emerald-300'
                                       }`}>
-                                        {todo.smartPriorityGroup}
+                                        Focus
                                       </span>
                                     )}
+                                    {Array.isArray(todo.reasonCodes) && todo.reasonCodes.slice(0, 2).map((code) => (
+                                      <span key={code} className="text-[10px] font-bold px-2 py-1 rounded-md uppercase tracking-widest bg-slate-800 text-slate-400">
+                                        {code.replaceAll('_', ' ')}
+                                      </span>
+                                    ))}
                                   </div>
                                 </div>
                                 
@@ -473,7 +527,7 @@ export default function SmartTodo() {
                                 <div className="flex flex-col items-end gap-1 shrink-0">
                                   <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-slate-800 border border-white/5">
                                     <Clock className="w-3.5 h-3.5 text-slate-400" />
-                                    <span className="text-xs text-slate-300 font-medium">{todo.suggestedTimeMinutes}m</span>
+                                    <span className="text-xs text-slate-300 font-medium">{todo.suggestedTimeMinutes || 0}m</span>
                                   </div>
                                   <div className="text-[10px] text-slate-500 uppercase tracking-tighter">Budget</div>
                                 </div>
@@ -482,19 +536,19 @@ export default function SmartTodo() {
                               {/* Footer Action items */}
                               <div className="flex flex-wrap items-center gap-4 pt-4 border-t border-white/5">
                                 <div className="flex items-center gap-3">
-                                  <ProgressRing percentage={todo.progressPercentage} size={36} />
+                                  <ProgressRing percentage={getProgressPercentage(todo)} size={36} />
                                   <div>
                                     <div className="text-xs text-slate-200 font-bold leading-tight">
-                                      {todo.currentProgress} <span className="text-slate-500 font-normal">/ {todo.targetProgress}</span>
+                                      {todo.progressDisplay || `${todo.currentProgress ?? 0} / ${todo.targetProgress ?? 0}`}
                                     </div>
                                     <div className="text-[9px] text-slate-500 uppercase font-medium">Progress</div>
                                   </div>
                                 </div>
 
-                                {todo.urgencyReason && (
+                                {(todo.reasonMessages?.[0] || todo.recommendedAction) && (
                                   <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/5 ml-auto">
                                     <span className="text-xs text-slate-300 font-medium">
-                                      {todo.urgencyReason}
+                                      {todo.reasonMessages?.[0] || todo.recommendedAction}
                                     </span>
                                   </div>
                                 )}
