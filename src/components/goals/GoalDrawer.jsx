@@ -6,10 +6,10 @@ import {
   Calendar,
   ChevronDown,
   Clock,
+  Info,
   Loader2,
   Pencil,
   Plus,
-  Search,
   Settings,
   Sliders,
   X,
@@ -107,6 +107,155 @@ function toDateInputValue(date) {
   const d = new Date(date);
   if (Number.isNaN(d.getTime())) return '';
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function parseDateInput(value) {
+  if (!value) return null;
+  const [year, month, day] = value.split('-').map((part) => parseInt(part, 10));
+  if (!year || !month || !day) return null;
+  const date = new Date(year, month - 1, day);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function addDays(date, amount) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + amount);
+  return next;
+}
+
+function daysInclusive(start, end) {
+  const startDay = new Date(start);
+  const endDay = new Date(end);
+  startDay.setHours(0, 0, 0, 0);
+  endDay.setHours(0, 0, 0, 0);
+  return Math.floor((endDay - startDay) / 86400000) + 1;
+}
+
+function startOfWeek(date) {
+  const result = new Date(date);
+  const day = result.getDay();
+  const distanceFromMonday = day === 0 ? 6 : day - 1;
+  result.setDate(result.getDate() - distanceFromMonday);
+  result.setHours(0, 0, 0, 0);
+  return result;
+}
+
+function startOfPeriod(date, frequency) {
+  const result = new Date(date);
+  result.setHours(0, 0, 0, 0);
+
+  switch (frequency) {
+    case 'WEEKLY':
+      return startOfWeek(result);
+    case 'MONTHLY':
+      return new Date(result.getFullYear(), result.getMonth(), 1);
+    case 'QUARTERLY': {
+      const quarterStartMonth = Math.floor(result.getMonth() / 3) * 3;
+      return new Date(result.getFullYear(), quarterStartMonth, 1);
+    }
+    case 'YEARLY':
+      return new Date(result.getFullYear(), 0, 1);
+    default:
+      return result;
+  }
+}
+
+function addPeriod(date, frequency) {
+  const next = new Date(date);
+  switch (frequency) {
+    case 'WEEKLY':
+      next.setDate(next.getDate() + 7);
+      return next;
+    case 'MONTHLY':
+      next.setMonth(next.getMonth() + 1);
+      return next;
+    case 'QUARTERLY':
+      next.setMonth(next.getMonth() + 3);
+      return next;
+    case 'YEARLY':
+      next.setFullYear(next.getFullYear() + 1);
+      return next;
+    default:
+      next.setDate(next.getDate() + 1);
+      return next;
+  }
+}
+
+function periodLabelFor(frequency) {
+  switch (frequency) {
+    case 'DAILY': return 'days';
+    case 'WEEKLY': return 'weeks';
+    case 'MONTHLY': return 'months';
+    case 'QUARTERLY': return 'quarters';
+    case 'YEARLY': return 'years';
+    default: return 'periods';
+  }
+}
+
+function calculateTotalPeriods(startValue, endValue, frequency) {
+  const start = parseDateInput(startValue);
+  const end = parseDateInput(endValue);
+
+  if (!frequency) {
+    return { value: null, display: '', detail: 'Choose a schedule type first.' };
+  }
+  if (!start || !end) {
+    return { value: null, display: '', detail: 'Select start and end dates.' };
+  }
+  if (end < start) {
+    return { value: null, display: '', detail: 'End date must be after start date.' };
+  }
+
+  if (frequency === 'DAILY') {
+    const totalDays = daysInclusive(start, end);
+    return {
+      value: totalDays,
+      display: `${totalDays} ${periodLabelFor(frequency)}`,
+      detail: `Daily periods use inclusive calendar days: end date - start date + 1 = ${totalDays}.`,
+    };
+  }
+
+  let cursor = new Date(start);
+  let total = 0;
+  const segments = [];
+
+  while (cursor <= end) {
+    const periodStart = startOfPeriod(cursor, frequency);
+    const nextPeriodStart = addPeriod(periodStart, frequency);
+    const periodEnd = addDays(nextPeriodStart, -1);
+    const segmentEnd = periodEnd < end ? periodEnd : end;
+    const daysInSegment = daysInclusive(cursor, segmentEnd);
+    const daysInWholePeriod = daysInclusive(periodStart, periodEnd);
+    const fraction = daysInSegment / daysInWholePeriod;
+
+    total += fraction;
+    segments.push(`${daysInSegment}/${daysInWholePeriod}`);
+    cursor = addDays(segmentEnd, 1);
+  }
+
+  const rounded = Math.round(total * 100) / 100;
+  return {
+    value: rounded,
+    display: `${rounded} ${periodLabelFor(frequency)}`,
+    detail: `${frequency.toLowerCase()} periods use calendar boundaries. Partial periods are counted as days in range divided by days in that period: ${segments.join(' + ')} = ${rounded}.`,
+  };
+}
+
+function formatNumberValue(value) {
+  if (value === null || value === undefined || value === '') return '';
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '';
+  return Number.isInteger(number) ? String(number) : number.toFixed(2);
+}
+
+function formatCommittedTime(minutes) {
+  const number = Number(minutes);
+  if (!Number.isFinite(number) || number <= 0) return '';
+  const rounded = Math.round(number);
+  const hours = Math.floor(rounded / 60);
+  const mins = rounded % 60;
+  if (hours === 0) return `${rounded} min`;
+  return mins === 0 ? `${hours}h (${rounded} min)` : `${hours}h ${mins}m (${rounded} min)`;
 }
 
 function getChildFrequency(rootFreq, monthlyMode) {
@@ -511,6 +660,73 @@ function SectionHeader({ icon: Icon, title, children }) {
       </div>
       {children}
     </div>
+  );
+}
+
+function FormSection({ icon, title, children, tone = 'blue' }) {
+  const toneClasses = {
+    blue: 'from-blue-500/10 via-white/[0.03] to-white/[0.02] border-blue-500/15',
+    green: 'from-emerald-500/10 via-white/[0.03] to-white/[0.02] border-emerald-500/15',
+    amber: 'from-amber-500/10 via-white/[0.03] to-white/[0.02] border-amber-500/15',
+    slate: 'from-white/[0.06] via-white/[0.03] to-white/[0.02] border-white/[0.08]',
+  };
+
+  return (
+    <section className={`rounded-2xl border bg-gradient-to-br p-4 ${toneClasses[tone] || toneClasses.slate}`}>
+      <SectionHeader icon={icon} title={title} />
+      {children}
+    </section>
+  );
+}
+
+function InfoTooltip({ title, children }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:text-white hover:bg-white/5 transition-colors"
+        aria-label={title}
+      >
+        <Info className="w-4 h-4" />
+      </button>
+      <AnimatePresence>
+        {open ? (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            className="absolute right-0 top-9 z-30 w-64 rounded-xl border border-white/10 bg-[#080820] p-3 text-xs text-slate-300 shadow-2xl"
+          >
+            <div className="mb-1 font-semibold text-white">{title}</div>
+            <div className="leading-5 text-slate-400">{children}</div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function ReadOnlyInfoField({ label, value, placeholder = 'Auto calculated', tooltipTitle, tooltip }) {
+  return (
+    <Field label={label}>
+      <div className="relative">
+        <input
+          value={value || ''}
+          placeholder={placeholder}
+          disabled
+          readOnly
+          className="w-full h-10 rounded-xl bg-white/[0.03] border border-white/10 px-3 pr-11 text-sm text-slate-300 placeholder:text-slate-600 disabled:opacity-100"
+        />
+        {tooltip ? (
+          <div className="absolute right-1 top-1">
+            <InfoTooltip title={tooltipTitle}>{tooltip}</InfoTooltip>
+          </div>
+        ) : null}
+      </div>
+    </Field>
   );
 }
 
@@ -1037,22 +1253,17 @@ export default function GoalDrawer({ isOpen, onClose, onSuccess, parentGoal, edi
 
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
-  const [showDescription, setShowDescription] = useState(false);
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
-  const [allGoals, setAllGoals] = useState([]);
-  const [parentSearch, setParentSearch] = useState('');
-  const [showParentDropdown, setShowParentDropdown] = useState(false);
-  const [selectedParentGoal, setSelectedParentGoal] = useState(null);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
 
   const [form, setForm] = useState({
     title: '', description: '',
     startDate: '', targetDate: '',
     goalType: '', priority: 'MEDIUM',
-    isContainer: false, isMilestone: false,
+    isContainer: true, isMilestone: false,
     metric: 'COUNT', targetOperator: 'GREATER_THAN', targetValue: '', currentValue: 0,
     minimumSessionPeriod: '', maximumSessionPeriod: '', minimumTimeCommittedPeriod: '',
-    scheduleFrequency: '', scheduleFlexible: true,
+    scheduleFrequency: 'DAILY', scheduleFlexible: true,
     scheduleSegments: [], scheduleMonthlyMode: 'weeks',
     missesAllowedPerPeriod: '', allowDoubleLogging: true,
     consistencyWeight: '', momentumWeight: '', progressWeight: '',
@@ -1062,36 +1273,26 @@ export default function GoalDrawer({ isOpen, onClose, onSuccess, parentGoal, edi
     if (!isOpen) return;
     const g = editGoal || {};
     setError(''); setIsSaving(false);
-    setShowDescription(false); setShowAdvancedOptions(false);
-    setParentSearch(''); setSelectedParentGoal(null); setShowParentDropdown(false);
+    setShowAdvancedOptions(false);
     setShowScheduleModal(false);
-
-    (async () => {
-      try {
-        const res = await goalsApi.getAll();
-        setAllGoals(
-          (Array.isArray(res) ? res : null) ||
-          (Array.isArray(res?.data) ? res.data : null) ||
-          (Array.isArray(res?.data?.data) ? res.data.data : null) || []
-        );
-      } catch { /* silent */ }
-    })();
 
     const parsed = parseScheduleSpec(g.scheduleSpec);
     const scheduleRequirements = getRequirementsFromScheduleSpec(g.scheduleSpec);
+    const defaultContainer = !isEdit && !parentGoal;
 
     setForm({
       title: g.title || '', description: g.description || '',
       startDate: isEdit ? toDateInputValue(g.startDate) : toDateInputValue(g.startDate) || toDateInputValue(new Date()),
       targetDate: toDateInputValue(g.targetDate),
       goalType: g.goalType || '', priority: g.priority || 'MEDIUM',
-      isContainer: g.isLeaf === false, isMilestone: Boolean(g.isMilestone),
+      isContainer: isEdit ? g.isLeaf === false : defaultContainer,
+      isMilestone: Boolean(g.isMilestone),
       metric: g.metric || 'COUNT', targetOperator: g.targetOperator || 'GREATER_THAN',
       targetValue: g.targetValue ?? '', currentValue: g.currentValue ?? 0,
       minimumSessionPeriod: scheduleRequirements.minimumSessionPeriod ?? g.minimumSessionPeriod ?? '',
       maximumSessionPeriod: scheduleRequirements.maximumSessionPeriod ?? g.maximumSessionPeriod ?? '',
       minimumTimeCommittedPeriod: g.minimumTimeCommittedPeriod ?? '',
-      scheduleFrequency: parsed.scheduleFrequency || '',
+      scheduleFrequency: parsed.scheduleFrequency || g.scheduleFrequency || 'DAILY',
       scheduleFlexible: parsed.scheduleFlexible ?? true,
       scheduleSegments: parsed.scheduleSegments || [],
       scheduleMonthlyMode: parsed.scheduleMonthlyMode || 'weeks',
@@ -1101,19 +1302,7 @@ export default function GoalDrawer({ isOpen, onClose, onSuccess, parentGoal, edi
       momentumWeight: g.momentumWeight ?? '',
       progressWeight: g.progressWeight ?? '',
     });
-
-    if (g.description) setShowDescription(true);
-  }, [isOpen, editGoal]);
-
-  // Close parent dropdown on outside click
-  useEffect(() => {
-    if (!showParentDropdown) return;
-    const handler = (e) => {
-      if (!e.target.closest('.parent-goal-dropdown')) setShowParentDropdown(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showParentDropdown]);
+  }, [isOpen, editGoal, isEdit, parentGoal]);
 
   const update = (patch) => setForm((prev) => ({ ...prev, ...patch }));
 
@@ -1133,11 +1322,35 @@ export default function GoalDrawer({ isOpen, onClose, onSuccess, parentGoal, edi
     [form.scheduleSegments, form.scheduleFrequency, form.scheduleMonthlyMode]
   );
 
+  const totalPeriods = useMemo(
+    () => calculateTotalPeriods(form.startDate, form.targetDate, form.scheduleFrequency),
+    [form.startDate, form.targetDate, form.scheduleFrequency]
+  );
+
+  const minimumActivities = useMemo(() => {
+    const value = parseFloat(form.minimumSessionPeriod);
+    return Number.isFinite(value) ? value : 0;
+  }, [form.minimumSessionPeriod]);
+
+  const timeCommittedPerPeriod = useMemo(() => {
+    const value = parseFloat(form.minimumTimeCommittedPeriod);
+    return Number.isFinite(value) ? value : 0;
+  }, [form.minimumTimeCommittedPeriod]);
+
+  const computedTargetValue = useMemo(() => {
+    if (!totalPeriods.value || !minimumActivities) return null;
+    return minimumActivities * totalPeriods.value;
+  }, [minimumActivities, totalPeriods.value]);
+
+  const computedTimeCommitted = useMemo(() => {
+    if (!totalPeriods.value || !timeCommittedPerPeriod) return null;
+    return timeCommittedPerPeriod * totalPeriods.value;
+  }, [timeCommittedPerPeriod, totalPeriods.value]);
+
   /* ─── Build payload ─── */
   const buildPayload = () => {
-    const parentGoalId =
-      selectedParentGoal?.uuid || selectedParentGoal?.id ||
-      parentGoal?.uuid || parentGoal?.id || null;
+    const parentGoalId = parentGoal?.uuid || parentGoal?.id || null;
+    const targetValue = computedTargetValue ?? parseFloat(form.targetValue);
 
     const payload = {
       title: form.title,
@@ -1149,12 +1362,13 @@ export default function GoalDrawer({ isOpen, onClose, onSuccess, parentGoal, edi
       isLeaf: !form.isContainer,
       metric: showAdvancedOptions ? form.metric || 'COUNT' : 'COUNT',
       targetOperator: showAdvancedOptions ? form.targetOperator || 'GREATER_THAN' : 'GREATER_THAN',
-      targetValue: form.isContainer ? 1 : form.targetValue === '' ? undefined : parseFloat(form.targetValue),
+      targetValue: form.isContainer ? 1 : Number.isFinite(targetValue) ? targetValue : undefined,
     };
+
+    payload.scheduleSpec = buildScheduleSpec(form) || undefined;
 
     if (!form.isContainer) {
       payload.currentValue = 0;
-      payload.scheduleSpec = buildScheduleSpec(form) || undefined;
       payload.minimumSessionPeriod = form.minimumSessionPeriod !== '' ? parseInt(form.minimumSessionPeriod) : undefined;
       payload.maximumSessionPeriod = form.maximumSessionPeriod !== '' ? parseInt(form.maximumSessionPeriod) : undefined;
       payload.minimumTimeCommittedPeriod = form.minimumTimeCommittedPeriod !== '' ? parseInt(form.minimumTimeCommittedPeriod) : undefined;
@@ -1185,9 +1399,12 @@ export default function GoalDrawer({ isOpen, onClose, onSuccess, parentGoal, edi
     setError('');
 
     if (!form.title.trim()) { setError('Title is required'); return; }
+    if (!form.scheduleFrequency) { setError('Schedule type is required'); return; }
+    if (!form.startDate || !form.targetDate) { setError('Start date and end date are required'); return; }
+    if (!totalPeriods.value) { setError(totalPeriods.detail || 'Timeline is invalid'); return; }
     if (!form.isContainer) {
-      const tv = parseFloat(form.targetValue);
-      if (!Number.isFinite(tv) || tv <= 0) { setError('Target Number must be greater than 0'); return; }
+      if (!minimumActivities || minimumActivities <= 0) { setError('Minimum activity per period must be greater than 0'); return; }
+      if (!computedTargetValue || computedTargetValue <= 0) { setError('Overall target must be greater than 0'); return; }
     }
     const wc = Number(form.consistencyWeight) || 0;
     const wm = Number(form.momentumWeight) || 0;
@@ -1243,50 +1460,66 @@ export default function GoalDrawer({ isOpen, onClose, onSuccess, parentGoal, edi
                 </motion.div>
               ) : null}
 
-              {/* ─── SECTION 1: Basic Info ─── */}
-              <div>
-                <SectionHeader title="Basic Info" />
+              <FormSection icon={Calendar} title="Goal Info" tone="blue">
                 <div className="space-y-4">
-                  <Field label="Goal Title *">
+                  <Field label="Title *">
                     <Input value={form.title} onChange={(e) => update({ title: e.target.value })}
                       placeholder="e.g. Master Quantitative for CAT" required
                       className="h-10 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus-visible:border-white/25 focus-visible:ring-0" />
                   </Field>
-                  {!showDescription ? (
-                    <button type="button" onClick={() => setShowDescription(true)}
-                      className="text-xs text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1">
-                      <Plus className="w-3 h-3" /> Add description
-                    </button>
-                  ) : (
-                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}>
-                      <Field label="Description">
-                        <Textarea rows={3} value={form.description} onChange={(e) => update({ description: e.target.value })}
-                          placeholder="What does achieving this goal mean to you?" />
-                      </Field>
-                    </motion.div>
-                  )}
-                </div>
-              </div>
 
-              {/* ─── SECTION 2: Timeline ─── */}
-              <div>
-                <SectionHeader icon={Calendar} title="Timeline" />
-                <div className="grid grid-cols-2 gap-4">
-                  <Field label="Start Date">
-                    <Input type="date" value={form.startDate} onChange={(e) => update({ startDate: e.target.value })}
-                      className="h-10 rounded-xl bg-white/5 border border-white/10 text-white focus-visible:border-white/25 focus-visible:ring-0" />
+                  <Field label="Description">
+                    <Textarea rows={3} value={form.description} onChange={(e) => update({ description: e.target.value })}
+                      placeholder="What does achieving this goal mean to you?" />
                   </Field>
-                  <Field label="Target Date">
-                    <Input type="date" value={form.targetDate} onChange={(e) => update({ targetDate: e.target.value })}
-                      className="h-10 rounded-xl bg-white/5 border border-white/10 text-white focus-visible:border-white/25 focus-visible:ring-0" />
-                  </Field>
-                </div>
-              </div>
 
-              {/* ─── SECTION 3: Goal Setup ─── */}
-              <div>
-                <SectionHeader title="Goal Setup" />
-                <div className="space-y-4">
+                  <div>
+                    <div className="text-xs text-slate-400 mb-2">Schedule type</div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                      {FREQUENCIES.map((f) => (
+                        <motion.button key={f.value} type="button" whileTap={{ scale: 0.95 }}
+                          onClick={() => {
+                            update({
+                              scheduleFrequency: f.value,
+                              scheduleFlexible: true,
+                              scheduleSegments: [],
+                              scheduleMonthlyMode: 'weeks',
+                            });
+                          }}
+                          className={[
+                            'px-3 py-2 rounded-xl text-xs font-medium transition-all duration-150',
+                            form.scheduleFrequency === f.value
+                              ? 'bg-white text-black shadow-lg shadow-white/10'
+                              : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.08] hover:text-slate-200 border border-white/[0.06]',
+                          ].join(' ')}>
+                          {f.label}
+                        </motion.button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Field label="Start Date">
+                      <Input type="date" value={form.startDate} onChange={(e) => update({ startDate: e.target.value })}
+                        className="h-10 rounded-xl bg-white/5 border border-white/10 text-white focus-visible:border-white/25 focus-visible:ring-0" />
+                    </Field>
+                    <Field label="End Date">
+                      <Input type="date" value={form.targetDate} onChange={(e) => update({ targetDate: e.target.value })}
+                        className="h-10 rounded-xl bg-white/5 border border-white/10 text-white focus-visible:border-white/25 focus-visible:ring-0" />
+                    </Field>
+                  </div>
+
+                  <ReadOnlyInfoField
+                    label="Total Periods"
+                    value={totalPeriods.display}
+                    tooltipTitle="Total periods"
+                    tooltip={totalPeriods.detail}
+                  />
+                </div>
+              </FormSection>
+
+              <FormSection title="Goal Setup" tone="slate">
+                <div className="space-y-5">
                   <div>
                     <div className="text-xs text-slate-400 mb-2">Goal type</div>
                     <div className="flex flex-wrap gap-1.5">
@@ -1304,6 +1537,7 @@ export default function GoalDrawer({ isOpen, onClose, onSuccess, parentGoal, edi
                       ))}
                     </div>
                   </div>
+
                   <div>
                     <div className="text-xs text-slate-400 mb-2">Priority</div>
                     <div className="flex flex-wrap gap-1.5">
@@ -1320,166 +1554,71 @@ export default function GoalDrawer({ isOpen, onClose, onSuccess, parentGoal, edi
                       ))}
                     </div>
                   </div>
-                  {!isEdit && !parentGoal ? (
-                    <Field label="Parent Goal (optional)">
-                      <div className="relative parent-goal-dropdown">
-                        {selectedParentGoal ? (
-                          <div className="flex items-center justify-between bg-white/5 border border-white/10 rounded-xl px-3 py-2.5">
-                            <span className="text-sm text-white">{selectedParentGoal.title}</span>
-                            <button type="button" onClick={() => { setSelectedParentGoal(null); setParentSearch(''); }}
-                              className="text-slate-400 hover:text-white ml-2"><X className="w-3 h-3" /></button>
-                          </div>
-                        ) : (
-                          <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                            <input type="text" value={parentSearch}
-                              onChange={(e) => { setParentSearch(e.target.value); setShowParentDropdown(true); }}
-                              onFocus={() => setShowParentDropdown(true)}
-                              onBlur={() => setTimeout(() => setShowParentDropdown(false), 150)}
-                              placeholder="Search goals..."
-                              className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-2.5 text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-white/25" />
-                            {showParentDropdown && (
-                              <div className="absolute top-full left-0 right-0 mt-1 bg-[#0a0a1a] border border-white/10 rounded-xl shadow-xl z-20 max-h-48 overflow-y-auto">
-                                {allGoals.filter((g) => !parentSearch || g.title?.toLowerCase().includes(parentSearch.toLowerCase()))
-                                  .slice(0, 8).map((g) => (
-                                    <button key={g.id} type="button"
-                                      className="w-full text-left px-3 py-2.5 text-sm text-slate-200 hover:bg-white/5 flex items-center justify-between"
-                                      onClick={() => { setSelectedParentGoal(g); setParentSearch(''); setShowParentDropdown(false); }}>
-                                      <span>{g.title}</span>
-                                      <span className="text-xs text-slate-500 ml-2">{g.goalType || ''}</span>
-                                    </button>
-                                  ))}
-                                {allGoals.filter((g) => !parentSearch || g.title?.toLowerCase().includes(parentSearch.toLowerCase())).length === 0 && (
-                                  <div className="px-3 py-3 text-sm text-slate-500">No goals found</div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        )}
+
+                  <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <div className="text-white text-sm">Track effort directly</div>
+                        <div className="text-xs text-slate-500">
+                          {form.isContainer
+                            ? 'This goal will be managed through child goals.'
+                            : 'Commitments and targets will be calculated below.'}
+                        </div>
                       </div>
-                    </Field>
-                  ) : null}
-                </div>
-              </div>
-
-              {/* ─── SECTION 4: Container toggle ─── */}
-              <div>
-                <SectionHeader title="How will you manage this goal?" />
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-white text-sm">Break into sub-goals</div>
-                    <div className="text-xs text-slate-500">I&apos;ll track this via smaller goals, not directly</div>
-                  </div>
-                  <SwitchToggle checked={form.isContainer} onChange={(v) => update({ isContainer: v })} />
-                </div>
-                {form.isContainer ? (
-                  <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}
-                    className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-slate-300">
-                    This goal&apos;s health will be calculated from its child goals automatically.
-                  </motion.div>
-                ) : null}
-              </div>
-
-              {/* ─── SECTION 5: Progress Tracking ─── */}
-              {!form.isContainer ? (
-                <div>
-                  <SectionHeader title="Progress Tracking" />
-                  <div className="space-y-4">
-                    <Field label="Overall Target Number">
-                      <Input type="number" value={form.targetValue} onChange={(e) => update({ targetValue: e.target.value })}
-                        placeholder="e.g. 500"
-                        className="h-10 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus-visible:border-white/25 focus-visible:ring-0" />
-                    </Field>
-
-                    {!showAdvancedOptions ? (
-                      <button type="button" onClick={() => setShowAdvancedOptions(true)}
-                        className="text-xs text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1">
-                        <Plus className="w-3 h-3" /> Advanced options
-                      </button>
-                    ) : (
-                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
-                        className="space-y-4 border-l-2 border-white/10 pl-4">
-                        <Field label="What are you tracking?">
-                          <Select value={form.metric} onChange={(v) => update({ metric: v })} options={METRICS} />
-                        </Field>
-                        <Field label="Target Operator">
-                          <Select value={form.targetOperator} onChange={(v) => update({ targetOperator: v })} options={OPERATORS} />
-                        </Field>
-                        <button type="button" onClick={() => setShowAdvancedOptions(false)}
-                          className="text-xs text-slate-500 hover:text-slate-300 transition-colors">Hide advanced options</button>
-                      </motion.div>
-                    )}
+                      <SwitchToggle checked={!form.isContainer} onChange={(v) => update({ isContainer: !v })} />
+                    </div>
                   </div>
                 </div>
-              ) : null}
+              </FormSection>
 
-              {/* ─── SECTION 6: Effort & Limits (VISIBLE — right after target) ─── */}
               {!form.isContainer ? (
-                <div>
-                  <SectionHeader icon={Zap} title="Effort & Commitment" />
+                <FormSection icon={Zap} title="Effort & Commitment" tone="green">
                   <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-3">
-                      <Field label={`Min activities ${periodLabel}`} hint="Consistency target">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <Field label={`Min activity ${periodLabel}`} hint="Required">
                         <Input type="number" min={0} value={form.minimumSessionPeriod}
                           onChange={(e) => update({ minimumSessionPeriod: e.target.value })}
                           placeholder="e.g. 3"
                           className="h-10 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus-visible:border-white/25 focus-visible:ring-0" />
                       </Field>
-                      <Field label={`Max activities ${periodLabel}`} hint="Progress cap">
+                      <Field label={`Max activity ${periodLabel}`} hint="Optional cap">
                         <Input type="number" min={0} value={form.maximumSessionPeriod}
                           onChange={(e) => update({ maximumSessionPeriod: e.target.value })}
                           placeholder="e.g. 10"
                           className="h-10 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus-visible:border-white/25 focus-visible:ring-0" />
                       </Field>
                     </div>
+
                     <Field label={`Time commitment ${periodLabel}`} hint="Minutes">
                       <Input type="number" min={0} value={form.minimumTimeCommittedPeriod}
                         onChange={(e) => update({ minimumTimeCommittedPeriod: e.target.value })}
                         placeholder="e.g. 120"
                         className="h-10 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus-visible:border-white/25 focus-visible:ring-0" />
                     </Field>
-                    <div className="text-[11px] text-slate-600">
-                      Activities = count of goal-related actions. Time = total minutes you&apos;re committing {periodLabel}.
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <ReadOnlyInfoField
+                        label="Overall Target Number"
+                        value={formatNumberValue(computedTargetValue)}
+                        tooltipTitle="Overall target"
+                        tooltip={`Minimum activity ${periodLabel} (${minimumActivities || 0}) x total periods (${formatNumberValue(totalPeriods.value) || 0}) = ${formatNumberValue(computedTargetValue) || 0}.`}
+                      />
+                      <ReadOnlyInfoField
+                        label="Total Time Committed"
+                        value={formatCommittedTime(computedTimeCommitted)}
+                        tooltipTitle="Total time committed"
+                        tooltip={`Time commitment ${periodLabel} (${timeCommittedPerPeriod || 0} min) x total periods (${formatNumberValue(totalPeriods.value) || 0}) = ${formatCommittedTime(computedTimeCommitted) || '0 min'}.`}
+                      />
                     </div>
                   </div>
-                </div>
+                </FormSection>
               ) : null}
 
-              {/* ─── SECTION 7: Schedule ─── */}
               {!form.isContainer ? (
-                <div>
-                  <SectionHeader icon={Calendar} title="Schedule" />
-                  <div className="space-y-4">
-                    {/* Frequency pills */}
-                    <div>
-                      <div className="text-xs text-slate-400 mb-2">How often?</div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {FREQUENCIES.map((f) => (
-                          <motion.button key={f.value} type="button" whileTap={{ scale: 0.95 }}
-                            onClick={() => {
-                              const newFreq = f.value === form.scheduleFrequency ? '' : f.value;
-                              update({
-                                scheduleFrequency: newFreq,
-                                scheduleFlexible: true,
-                                scheduleSegments: [],
-                                scheduleMonthlyMode: 'weeks',
-                              });
-                            }}
-                            className={[
-                              'px-3 py-2 rounded-xl text-xs font-medium transition-all duration-150',
-                              form.scheduleFrequency === f.value
-                                ? 'bg-white text-black shadow-lg shadow-white/10'
-                                : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.08] hover:text-slate-200 border border-white/[0.06]',
-                            ].join(' ')}>
-                            {f.label}
-                          </motion.button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Flexible / Specific toggle */}
-                    {form.scheduleFrequency ? (
-                      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <FormSection icon={Sliders} title="Fine Tuning" tone="amber">
+                  <div className="space-y-3">
+                    <ExpandableSection label="Schedule details" icon={Calendar} defaultOpen={!form.scheduleFlexible}>
+                      <div className="space-y-3">
                         <div className="inline-flex rounded-xl border border-white/10 bg-white/[0.03] p-1">
                           <button type="button"
                             onClick={() => update({ scheduleFlexible: true, scheduleSegments: [] })}
@@ -1506,19 +1645,15 @@ export default function GoalDrawer({ isOpen, onClose, onSuccess, parentGoal, edi
                           </button>
                         </div>
 
-                        {/* Flexible mode description */}
                         {form.scheduleFlexible ? (
-                          <div className="mt-2 text-[11px] text-slate-600">
-                            Check in anytime within the {form.scheduleFrequency.toLowerCase()} period. No fixed days or times.
+                          <div className="text-[11px] text-slate-600">
+                            Check in anytime within the {form.scheduleFrequency.toLowerCase()} period.
                           </div>
-                        ) : null}
-
-                        {/* Specific mode summary */}
-                        {!form.scheduleFlexible ? (
-                          <div className="mt-3">
+                        ) : (
+                          <div>
                             {form.scheduleSegments.length > 0 ? (
                               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                                <div className="flex items-center justify-between">
+                                <div className="flex items-center justify-between gap-3">
                                   <div className="text-xs text-white font-medium">
                                     {scheduleSummary}
                                   </div>
@@ -1535,39 +1670,58 @@ export default function GoalDrawer({ isOpen, onClose, onSuccess, parentGoal, edi
                               </button>
                             )}
                           </div>
-                        ) : null}
-                      </motion.div>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-
-              {/* ─── SECTION 8: Fine-tuning (expandable) ─── */}
-              {!form.isContainer ? (
-                <div className="space-y-3">
-                  <ExpandableSection label="Fine-tuning" icon={Sliders} defaultOpen={!!(form.missesAllowedPerPeriod)}>
-                    <div className="space-y-4">
-                      <Field label="Misses allowed per period" hint="Grace period before momentum breaks">
-                        <Input type="number" min={0} value={form.missesAllowedPerPeriod}
-                          onChange={(e) => update({ missesAllowedPerPeriod: e.target.value })}
-                          placeholder="e.g. 2"
-                          className="h-9 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus-visible:border-white/25 focus-visible:ring-0" />
-                      </Field>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="text-white text-sm">Allow multiple sessions per day</div>
-                          <div className="text-xs text-slate-500">Allow double logging</div>
-                        </div>
-                        <SwitchToggle checked={form.allowDoubleLogging} onChange={(v) => update({ allowDoubleLogging: v })} />
+                        )}
                       </div>
-                    </div>
-                  </ExpandableSection>
+                    </ExpandableSection>
 
-                  <ExpandableSection label="Health Weights" icon={Sliders}
-                    defaultOpen={!!(form.consistencyWeight || form.momentumWeight || form.progressWeight)}>
-                    <HealthWeightsEditor form={form} update={update} goalType={form.goalType} />
-                  </ExpandableSection>
-                </div>
+                    <ExpandableSection label="Tracking details" icon={Settings} defaultOpen={showAdvancedOptions}>
+                      <div className="space-y-4">
+                        {!showAdvancedOptions ? (
+                          <button type="button" onClick={() => setShowAdvancedOptions(true)}
+                            className="text-xs text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1">
+                            <Plus className="w-3 h-3" /> Customize metric and operator
+                          </button>
+                        ) : (
+                          <>
+                            <Field label="What are you tracking?">
+                              <Select value={form.metric} onChange={(v) => update({ metric: v })} options={METRICS} />
+                            </Field>
+                            <Field label="Target Operator">
+                              <Select value={form.targetOperator} onChange={(v) => update({ targetOperator: v })} options={OPERATORS} />
+                            </Field>
+                            <button type="button" onClick={() => setShowAdvancedOptions(false)}
+                              className="text-xs text-slate-500 hover:text-slate-300 transition-colors">
+                              Use default tracking
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </ExpandableSection>
+
+                    <ExpandableSection label="Behavior" icon={Sliders} defaultOpen={!!(form.missesAllowedPerPeriod)}>
+                      <div className="space-y-4">
+                        <Field label="Misses allowed per period" hint="Grace period before momentum breaks">
+                          <Input type="number" min={0} value={form.missesAllowedPerPeriod}
+                            onChange={(e) => update({ missesAllowedPerPeriod: e.target.value })}
+                            placeholder="e.g. 2"
+                            className="h-9 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus-visible:border-white/25 focus-visible:ring-0" />
+                        </Field>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="text-white text-sm">Allow multiple sessions per day</div>
+                            <div className="text-xs text-slate-500">Allow double logging</div>
+                          </div>
+                          <SwitchToggle checked={form.allowDoubleLogging} onChange={(v) => update({ allowDoubleLogging: v })} />
+                        </div>
+                      </div>
+                    </ExpandableSection>
+
+                    <ExpandableSection label="Health Weights" icon={Sliders}
+                      defaultOpen={!!(form.consistencyWeight || form.momentumWeight || form.progressWeight)}>
+                      <HealthWeightsEditor form={form} update={update} goalType={form.goalType} />
+                    </ExpandableSection>
+                  </div>
+                </FormSection>
               ) : null}
             </form>
 
