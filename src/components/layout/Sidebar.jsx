@@ -2,12 +2,11 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { BarChart2, Home, LogOut, Settings, Target, Zap, CheckSquare } from 'lucide-react';
+import { BarChart2, LogOut, Settings, Target, Zap, CheckSquare } from 'lucide-react';
 import useAuthStore from '@/lib/store/authStore';
 import { logout } from '@/lib/api/authApi';
 
 const navItems = [
-  { label: 'Home', href: '/dashboard', icon: Home, match: 'exact' },
   { label: 'My Tasks', href: '/tasks', icon: CheckSquare, match: 'startsWith' },
   { label: 'Goals', href: '/goals', icon: Target, match: 'startsWith' },
   { label: 'Activities', href: '/activities', icon: Zap, match: 'startsWith' },
@@ -111,4 +110,3 @@ export default function Sidebar() {
     </aside>
   );
 }
-

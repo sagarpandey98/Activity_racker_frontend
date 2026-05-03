@@ -59,6 +59,36 @@ export const goalsApi = {
       .then(r => r.data),
 };
 
+export const goalPeriodsApi = {
+  list: (goalUuid) =>
+    trackerClient.get(`/goals/${goalUuid}/periods`).then(r => r.data),
+
+  getActive: (goalUuid, date) =>
+    trackerClient
+      .get(`/goals/${goalUuid}/periods/active${date ? `?date=${date}` : ''}`)
+      .then(r => r.data),
+
+  getOne: (goalUuid, periodUuid) =>
+    trackerClient.get(`/goals/${goalUuid}/periods/${periodUuid}`).then(r => r.data),
+
+  create: (goalUuid, data = {}) =>
+    trackerClient.post(`/goals/${goalUuid}/periods`, data).then(r => r.data),
+
+  bulkCreate: (goalUuid, data) =>
+    trackerClient.post(`/goals/${goalUuid}/periods/bulk`, data).then(r => r.data),
+
+  reconcile: (goalUuid, throughDate) =>
+    trackerClient
+      .post(`/goals/${goalUuid}/periods/reconcile${throughDate ? `?throughDate=${throughDate}` : ''}`)
+      .then(r => r.data),
+
+  update: (goalUuid, periodUuid, data) =>
+    trackerClient.put(`/goals/${goalUuid}/periods/${periodUuid}`, data).then(r => r.data),
+
+  delete: (goalUuid, periodUuid) =>
+    trackerClient.delete(`/goals/${goalUuid}/periods/${periodUuid}`).then(r => r.data),
+};
+
 // Priority System
 export const priorityApi = {
   // Priority-wise goal listings

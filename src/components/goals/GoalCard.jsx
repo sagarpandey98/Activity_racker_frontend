@@ -1,11 +1,13 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronRight, MoreHorizontal } from 'lucide-react';
+import { ChevronRight, MoreHorizontal, BarChart3 } from 'lucide-react';
 import {
+  CHILD_GOAL_DISABLED_EXPLANATION,
   getPriorityColor,
   getPriorityLabel,
   getStatusColor,
+  isMilestoneGoal,
   isTrackedGoal,
 } from '@/lib/utils/goalUtils';
 import { getHealthBadgeClass, getHealthColor, getHealthStatus, formatScoreComponent, getScoreComponentColor } from '@/lib/utils/healthUtils';
@@ -91,6 +93,7 @@ export default function GoalCard({
   onEdit,
   onAddChild,
   onDelete,
+  onViewDetails,
   isExpanded = false,
   onToggleExpand,
   level = 0,
@@ -109,6 +112,7 @@ export default function GoalCard({
 
   const isLeaf = goal?.isLeaf === true;
   const hasChildren = Array.isArray(goal?.childGoals) && goal.childGoals.length > 0;
+  const milestone = isMilestoneGoal(goal);
   const isTracked = isTrackedGoal(goal);
   const currentStreak = Number(goal?.currentStreak || 0);
   const progressPercentage = Number(goal?.progressPercentage ?? 0);
@@ -187,7 +191,7 @@ export default function GoalCard({
             </span>
           ) : null}
 
-          {healthScore !== null && healthScore !== undefined ? (
+          {!milestone && healthScore !== null && healthScore !== undefined ? (
             <HealthScoreTooltip goal={goal}>
               <span className={['text-xs px-2 py-0.5 rounded-full border', getHealthBadgeClass(healthScore)].join(' ')}>
                 {Math.round(Number(healthScore))} {healthStatus}
@@ -195,13 +199,25 @@ export default function GoalCard({
             </HealthScoreTooltip>
           ) : null}
 
-          {isLeaf && !isTracked ? (
+          {milestone ? (
+            <span className="text-xs px-2 py-0.5 rounded-full border border-violet-500/30 bg-violet-500/15 text-violet-300">
+              Milestone
+            </span>
+          ) : null}
+
+          {isLeaf && !isTracked && !milestone ? (
             <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-500 border border-slate-700">
               Setup tracking
             </span>
           ) : null}
 
-          {isLeaf && currentStreak > 0 ? (
+          {isLeaf && isTracked && !milestone ? (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+              Tracked
+            </span>
+          ) : null}
+
+          {isLeaf && !milestone && currentStreak > 0 ? (
             <span className="text-xs text-orange-400">🔥 {currentStreak}</span>
           ) : null}
 
@@ -235,17 +251,44 @@ export default function GoalCard({
                 >
                   Edit
                 </button>
-                <button
-                  type="button"
-                  className="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-white/5 cursor-pointer text-slate-200"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setOpenMenu(false);
-                    onAddChild?.(goal);
-                  }}
-                >
-                  Add Child Goal
-                </button>
+                <div className={milestone ? '' : 'border-b border-white/[0.06] pb-1'}>
+                  <span
+                    className="block"
+                    title={!milestone ? CHILD_GOAL_DISABLED_EXPLANATION : undefined}
+                  >
+                    <button
+                      type="button"
+                      disabled={!milestone}
+                      aria-label={
+                        !milestone ? CHILD_GOAL_DISABLED_EXPLANATION : 'Add child goal'
+                      }
+                      className="w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm text-slate-200 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenMenu(false);
+                        if (milestone) onAddChild?.(goal);
+                      }}
+                    >
+                      Add Child Goal
+                    </button>
+                  </span>
+                </div>
+                {isLeaf && isTracked && !milestone ? (
+                  <button
+                    type="button"
+                    className="w-full text-left px-3 py-2 text-sm rounded-lg cursor-pointer text-blue-400 hover:bg-blue-500/10"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOpenMenu(false);
+                      onViewDetails?.(goal);
+                    }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <BarChart3 className="w-4 h-4" />
+                      View Details
+                    </div>
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="w-full text-left px-3 py-2 text-sm rounded-lg cursor-pointer text-red-400 hover:bg-red-500/10"
@@ -293,7 +336,7 @@ export default function GoalCard({
       ) : null}
 
       {/* ROW 4 */}
-      {isLeaf ? (
+      {isLeaf && !milestone ? (
         <div className="mt-2 ml-6 mr-2">
           <div className="h-1 rounded-full bg-white/10 overflow-hidden">
             <div

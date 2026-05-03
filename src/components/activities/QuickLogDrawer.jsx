@@ -19,6 +19,15 @@ const formatTime = (date) => {
   return date.toTimeString().slice(0, 5);
 };
 
+const toTimeInput = (value) => {
+  if (!value) return '';
+  if (typeof value === 'string' && /^\d{2}:\d{2}$/.test(value)) return value;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return formatTime(date);
+};
+
 export default function QuickLogDrawer({ isOpen, onClose, onSuccess, prefillGoal }) {
   const [activityName, setActivityName] = useState('');
   const [selectedGoal, setSelectedGoal] = useState(null);
@@ -70,11 +79,20 @@ export default function QuickLogDrawer({ isOpen, onClose, onSuccess, prefillGoal
       if (prefillGoal) {
         // Map SmartTodo goal structure to regular goal structure
         const goalId = prefillGoal.goalId || prefillGoal.id;
-        
-        if (!goalId) {
-          console.error('Goal ID is undefined in prefillGoal:', prefillGoal);
-          setError('Goal ID is missing. Please select a goal manually.');
-        } else {
+
+        setActivityName(
+          prefillGoal.activityName ||
+          prefillGoal.title ||
+          prefillGoal.name ||
+          ''
+        );
+
+        const prefilledStart = toTimeInput(prefillGoal.startTime || prefillGoal.scheduledStartTime);
+        const prefilledEnd = toTimeInput(prefillGoal.endTime || prefillGoal.scheduledEndTime);
+        if (prefilledStart) setStartTime(prefilledStart);
+        if (prefilledEnd) setEndTime(prefilledEnd);
+
+        if (goalId && !prefillGoal.isAdhoc && !prefillGoal.isActivityLog) {
           const mappedGoal = {
             id: goalId,
             title: prefillGoal.title || prefillGoal.name,
@@ -92,7 +110,6 @@ export default function QuickLogDrawer({ isOpen, onClose, onSuccess, prefillGoal
             isLeaf: true,
           };
           setSelectedGoal(mappedGoal);
-          setActivityName(prefillGoal.title || prefillGoal.name || '');
         }
       }
 
@@ -155,7 +172,9 @@ export default function QuickLogDrawer({ isOpen, onClose, onSuccess, prefillGoal
 
     try {
       // Convert local time strings to proper ISO datetime with timezone
-      const today = new Date();
+      const today = prefillGoal?.activityDate
+        ? new Date(`${prefillGoal.activityDate}T00:00:00`)
+        : new Date();
       
       // Parse start and end times and combine with today's date
       const [startHours, startMins] = startTime.split(':').map(Number);

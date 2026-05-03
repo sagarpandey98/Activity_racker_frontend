@@ -4,7 +4,11 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   BarChart2,
+  CalendarDays,
+  Check,
+  ChevronDown,
   Clock3,
+  LineChart as LineChartIcon,
   Link2,
   Target,
   TrendingUp,
@@ -16,6 +20,8 @@ import {
   CartesianGrid,
   Cell,
   Legend,
+  Line,
+  LineChart,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -39,8 +45,17 @@ import {
 } from '@/lib/utils/goalUtils';
 
 const ANALYTICS_DAYS = 14;
-const ACTIVITY_PAGE_SIZE = 500;
+const ACTIVITY_PAGE_SIZE = 2000;
 const NO_GOAL_KEY = 'group_no_goal';
+const ACTIVITY_CHART_TYPES = [
+  { value: 'stacked', label: 'Stacked Bar', Icon: BarChart2 },
+  { value: 'line', label: 'Line', Icon: LineChartIcon },
+];
+const ACTIVITY_QUICK_RANGES = [
+  { value: '14d', label: 'Last 14 days', days: 14 },
+  { value: '30d', label: 'Last 30 days', days: 30 },
+  { value: '90d', label: 'Last 90 days', days: 90 },
+];
 const ACTIVE_EXCLUDED_STATUSES = new Set([
   'COMPLETED',
   'ARCHIVED',
@@ -131,6 +146,12 @@ function formatDateKey(date) {
   return `${year}-${month}-${day}`;
 }
 
+function parseInputDate(value) {
+  if (!value) return null;
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function getLocalDateKey(value) {
   if (!value) return null;
   const date = new Date(value);
@@ -138,20 +159,51 @@ function getLocalDateKey(value) {
   return formatDateKey(date);
 }
 
-function getWindowStartIso(days) {
-  const start = new Date();
-  start.setDate(start.getDate() - (days - 1));
-  start.setHours(0, 0, 0, 0);
-  return start.toISOString();
+function getDefaultActivityRange(days = ANALYTICS_DAYS) {
+  const end = new Date();
+  end.setHours(0, 0, 0, 0);
+
+  const start = new Date(end);
+  start.setDate(end.getDate() - (days - 1));
+
+  return {
+    startDate: formatDateKey(start),
+    endDate: formatDateKey(end),
+  };
 }
 
-function getDateWindow(days) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+function getActivityRangeFilter(range) {
+  const start = parseInputDate(range.startDate);
+  const end = parseInputDate(range.endDate);
+  if (!start || !end) return {};
+
+  const endOfDay = new Date(end);
+  endOfDay.setHours(23, 59, 59, 999);
+
+  return {
+    startTime: start.toISOString(),
+    endTime: endOfDay.toISOString(),
+  };
+}
+
+function getRangeDays(range) {
+  const start = parseInputDate(range.startDate);
+  const end = parseInputDate(range.endDate);
+  if (!start || !end || end < start) return 0;
+
+  return Math.round((end - start) / 86400000) + 1;
+}
+
+function getDateWindow(range) {
+  const start = parseInputDate(range.startDate);
+  const end = parseInputDate(range.endDate);
+  if (!start || !end || end < start) return [];
+
+  const days = getRangeDays(range);
 
   return Array.from({ length: days }, (_, index) => {
-    const date = new Date(today);
-    date.setDate(today.getDate() - (days - 1 - index));
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
 
     return {
       date: formatDateKey(date),
@@ -163,6 +215,24 @@ function getDateWindow(days) {
       total: 0,
     };
   });
+}
+
+function formatActivityRangeLabel(range) {
+  const start = parseInputDate(range.startDate);
+  const end = parseInputDate(range.endDate);
+  const days = getRangeDays(range);
+
+  if (!start || !end || days === 0) return 'selected range';
+
+  const formatOptions = {
+    day: '2-digit',
+    month: 'short',
+  };
+
+  return `${start.toLocaleDateString('en-IN', formatOptions)} - ${end.toLocaleDateString(
+    'en-IN',
+    formatOptions
+  )} (${days} days)`;
 }
 
 function getDurationMinutes(activity) {
@@ -286,6 +356,10 @@ function sortGoalsByPriority(a, b) {
   return getGoalTitle(a).localeCompare(getGoalTitle(b));
 }
 
+function getGoalGroupKey(goalId) {
+  return `goal_${String(goalId).replace(/[^a-zA-Z0-9]/g, '_')}`;
+}
+
 function buildActivityGroup(activity, goalsById) {
   const goalId = getActivityGoalId(activity);
   if (!goalId) {
@@ -298,7 +372,7 @@ function buildActivityGroup(activity, goalsById) {
 
   const goal = goalsById.get(String(goalId));
   return {
-    key: `goal_${String(goalId).replace(/[^a-zA-Z0-9]/g, '_')}`,
+    key: getGoalGroupKey(goalId),
     label:
       goal?.title ||
       goal?.name ||
@@ -504,6 +578,10 @@ function GoalPerformanceRow({ goal, index }) {
 }
 
 export default function AnalyticsPage() {
+  const [activityGoalIdFromUrl, setActivityGoalIdFromUrl] = useState(null);
+  const activityGoalKeyFromUrl = activityGoalIdFromUrl
+    ? getGoalGroupKey(activityGoalIdFromUrl)
+    : null;
   const [stats, setStats] = useState(null);
   const [healthGoals, setHealthGoals] = useState([]);
   const [allGoals, setAllGoals] = useState([]);
@@ -511,6 +589,20 @@ export default function AnalyticsPage() {
   const [activities, setActivities] = useState([]);
   const [loadErrors, setLoadErrors] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isActivityLoading, setIsActivityLoading] = useState(true);
+  const [activityError, setActivityError] = useState(null);
+  const [activityRange, setActivityRange] = useState(() =>
+    getDefaultActivityRange()
+  );
+  const [activityChartType, setActivityChartType] = useState('stacked');
+  const [selectedActivityKeys, setSelectedActivityKeys] = useState(null);
+  const [isActivityGoalMenuOpen, setIsActivityGoalMenuOpen] = useState(false);
+  const [appliedActivityGoalKey, setAppliedActivityGoalKey] = useState(null);
+
+  useEffect(() => {
+    const goalId = new URLSearchParams(window.location.search).get('goal');
+    if (goalId) setActivityGoalIdFromUrl(goalId);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -524,23 +616,13 @@ export default function AnalyticsPage() {
         goalsApi.getHealthSummary(),
         goalsApi.getAll(),
         priorityApi.getSortedGoals(),
-        activitiesApi.search(
-          { startTime: getWindowStartIso(ANALYTICS_DAYS) },
-          {
-            page: 0,
-            size: ACTIVITY_PAGE_SIZE,
-            sortBy: 'createdAt',
-            sortDirection: 'DESC',
-          }
-        ),
       ]);
 
       if (!isMounted) return;
 
-      const [statsRes, healthRes, goalsRes, priorityRes, activitiesRes] =
-        results.map((result) =>
-          result.status === 'fulfilled' ? result.value : null
-        );
+      const [statsRes, healthRes, goalsRes, priorityRes] = results.map((result) =>
+        result.status === 'fulfilled' ? result.value : null
+      );
 
       setStats(unwrapResponse(statsRes) || null);
       setHealthGoals(
@@ -548,14 +630,6 @@ export default function AnalyticsPage() {
       );
       setAllGoals(asArray(goalsRes, ['goals', 'items', 'content']));
       setPriorityGoals(asArray(priorityRes, ['goals', 'items', 'content']));
-      setActivities(
-        asArray(activitiesRes, [
-          'activities',
-          'content',
-          'items',
-          'data.activities',
-        ])
-      );
       setLoadErrors(
         results
           .filter((result) => result.status === 'rejected')
@@ -570,6 +644,48 @@ export default function AnalyticsPage() {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchActivities = async () => {
+      setIsActivityLoading(true);
+      setActivityError(null);
+
+      try {
+        const response = await activitiesApi.search(getActivityRangeFilter(activityRange), {
+          page: 0,
+          size: ACTIVITY_PAGE_SIZE,
+          sortBy: 'createdAt',
+          sortDirection: 'DESC',
+        });
+
+        if (!isMounted) return;
+
+        setActivities(
+          asArray(response, [
+            'activities',
+            'content',
+            'items',
+            'data.activities',
+          ])
+        );
+      } catch (error) {
+        if (!isMounted) return;
+
+        setActivities([]);
+        setActivityError(error?.message || 'Unable to load activity data');
+      } finally {
+        if (isMounted) setIsActivityLoading(false);
+      }
+    };
+
+    fetchActivities();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activityRange]);
 
   const mergedGoals = useMemo(
     () => mergeGoalLists(allGoals, priorityGoals, healthGoals),
@@ -640,12 +756,26 @@ export default function AnalyticsPage() {
   );
 
   const activityInsights = useMemo(() => {
-    const rows = getDateWindow(ANALYTICS_DAYS);
+    const rows = getDateWindow(activityRange);
     const rowsByDate = new Map(rows.map((row) => [row.date, row]));
     const groups = new Map();
     let total = 0;
     let goalLinked = 0;
     let noGoal = 0;
+
+    activeGoalPerformance.forEach((goal) => {
+      const goalId = getGoalId(goal);
+      if (!goalId) return;
+
+      const key = getGoalGroupKey(goalId);
+      groups.set(key, {
+        key,
+        label: getGoalTitle(goal),
+        goalId: String(goalId),
+        total: 0,
+        minutes: 0,
+      });
+    });
 
     activities.forEach((activity) => {
       const dateKey = getLocalDateKey(getActivityDateValue(activity));
@@ -690,6 +820,12 @@ export default function AnalyticsPage() {
       ])
     );
 
+    rows.forEach((row) => {
+      series.forEach((group) => {
+        row[group.key] = row[group.key] || 0;
+      });
+    });
+
     return {
       rows,
       series,
@@ -698,7 +834,122 @@ export default function AnalyticsPage() {
       noGoal,
       colorByKey,
     };
-  }, [activities, goalsById]);
+  }, [activities, activeGoalPerformance, activityRange, goalsById]);
+
+  const activityRangeDays = getRangeDays(activityRange);
+  const activityRangeLabel = formatActivityRangeLabel(activityRange);
+
+  const activityGroupKeys = useMemo(
+    () => activityInsights.series.map((group) => group.key),
+    [activityInsights.series]
+  );
+
+  useEffect(() => {
+    if (!activityGoalKeyFromUrl) {
+      if (appliedActivityGoalKey) setAppliedActivityGoalKey(null);
+      return;
+    }
+
+    if (appliedActivityGoalKey === activityGoalKeyFromUrl) return;
+    if (!activityGroupKeys.includes(activityGoalKeyFromUrl)) return;
+
+    setSelectedActivityKeys([activityGoalKeyFromUrl]);
+    setAppliedActivityGoalKey(activityGoalKeyFromUrl);
+    setIsActivityGoalMenuOpen(false);
+
+    window.setTimeout(() => {
+      document
+        .getElementById('activities-by-goal')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 0);
+  }, [activityGoalKeyFromUrl, activityGroupKeys, appliedActivityGoalKey]);
+
+  const selectedActivityGroupKeys = useMemo(() => {
+    const availableKeys = new Set(activityGroupKeys);
+    const keys = selectedActivityKeys ?? activityGroupKeys;
+
+    return new Set(keys.filter((key) => availableKeys.has(key)));
+  }, [activityGroupKeys, selectedActivityKeys]);
+
+  const visibleActivityInsights = useMemo(() => {
+    const series = activityInsights.series.filter((group) =>
+      selectedActivityGroupKeys.has(group.key)
+    );
+
+    const rows = activityInsights.rows.map((row) => {
+      const nextRow = { ...row, total: 0 };
+      series.forEach((group) => {
+        const value = toNumber(row[group.key]);
+        nextRow[group.key] = value;
+        nextRow.total += value;
+      });
+      return nextRow;
+    });
+
+    return {
+      ...activityInsights,
+      rows,
+      series,
+      total: rows.reduce((sum, row) => sum + row.total, 0),
+    };
+  }, [activityInsights, selectedActivityGroupKeys]);
+
+  const selectedActivityCount = selectedActivityGroupKeys.size;
+  const allActivityGroupsSelected =
+    activityGroupKeys.length > 0 &&
+    selectedActivityCount === activityGroupKeys.length;
+  const selectedActivityTotal = visibleActivityInsights.total;
+  const activityGoalSelectionLabel = allActivityGroupsSelected
+    ? 'All goals'
+    : selectedActivityCount === 0
+      ? 'No goals selected'
+      : `${selectedActivityCount} goal${selectedActivityCount === 1 ? '' : 's'}`;
+  const activityGoalSelectionDetail = `${selectedActivityTotal} activit${
+    selectedActivityTotal === 1 ? 'y' : 'ies'
+  } in range`;
+  const activityChartTitle =
+    selectedActivityCount === 1 && visibleActivityInsights.series[0]?.label
+      ? `Activities for ${visibleActivityInsights.series[0].label}`
+      : 'Activities by Goal';
+
+  const selectAllActivityGroups = () => {
+    setSelectedActivityKeys(null);
+  };
+
+  const clearActivityGroups = () => {
+    setSelectedActivityKeys([]);
+  };
+
+  const toggleActivityGroup = (key) => {
+    setSelectedActivityKeys((currentKeys) => {
+      const nextKeys = new Set(currentKeys ?? activityGroupKeys);
+
+      if (nextKeys.has(key)) {
+        nextKeys.delete(key);
+      } else {
+        nextKeys.add(key);
+      }
+
+      return Array.from(nextKeys);
+    });
+  };
+
+  const setQuickActivityRange = (days) => {
+    setActivityRange(getDefaultActivityRange(days));
+  };
+
+  const setActivityDate = (field, value) => {
+    setActivityRange((current) => {
+      const next = { ...current, [field]: value };
+
+      if (next.startDate && next.endDate && next.startDate > next.endDate) {
+        if (field === 'startDate') next.endDate = next.startDate;
+        else next.startDate = next.endDate;
+      }
+
+      return next;
+    });
+  };
 
   const goalsByStatus = useMemo(
     () => getGoalsByStatus(stats, mergedGoals),
@@ -744,7 +995,7 @@ export default function AnalyticsPage() {
         title: 'High-priority goals are quiet',
         body: `${names}${extra} ${
           staleHighPriority.length === 1 ? 'has' : 'have'
-        } no logs in the last ${ANALYTICS_DAYS} days.`,
+        } no logs in the selected ${activityRangeDays || ANALYTICS_DAYS}-day range.`,
       });
     }
 
@@ -787,7 +1038,7 @@ export default function AnalyticsPage() {
     }
 
     return insights.slice(0, 4);
-  }, [activeGoalPerformance, activityInsights.noGoal]);
+  }, [activeGoalPerformance, activityInsights.noGoal, activityRangeDays]);
 
   const linkedRate =
     activityInsights.total === 0
@@ -843,8 +1094,8 @@ export default function AnalyticsPage() {
         <StatCard
           icon={Zap}
           iconColor="bg-yellow-500/10 text-yellow-400"
-          label={`Activities ${ANALYTICS_DAYS}d`}
-          value={activityInsights.total}
+          label={`Activities ${activityRangeDays || ANALYTICS_DAYS}d`}
+          value={isActivityLoading ? '...' : activityInsights.total}
           detail={`${activityInsights.goalLinked} linked`}
         />
         <StatCard
@@ -895,23 +1146,255 @@ export default function AnalyticsPage() {
         )}
       </ChartCard>
 
-      <div className="mt-6">
+      <div id="activities-by-goal" className="mt-6 scroll-mt-6">
         <ChartCard
-          title="Activities by Goal"
-          subtitle={`Daily logs grouped by linked goal over the last ${ANALYTICS_DAYS} days`}
+          title={activityChartTitle}
+          subtitle={`Count of activity logs by day for ${activityRangeLabel}`}
         >
-          {activityInsights.total === 0 ? (
+          <div className="mb-5 rounded-xl border border-indigo-400/15 bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.18),transparent_34%),linear-gradient(135deg,rgba(14,165,233,0.08),rgba(236,72,153,0.05))] p-4">
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.75fr)]">
+              <div>
+                <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Visualisation
+                </div>
+                <div className="mt-2 inline-flex rounded-lg border border-white/10 bg-black/20 p-1">
+                  {ACTIVITY_CHART_TYPES.map(({ value, label, Icon }) => {
+                    const isActive = activityChartType === value;
+
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setActivityChartType(value)}
+                        className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-medium transition ${
+                          isActive
+                            ? 'bg-white text-slate-950 shadow-lg shadow-indigo-950/30'
+                            : 'text-slate-400 hover:bg-white/5 hover:text-white'
+                        }`}
+                      >
+                        <Icon className="h-4 w-4" />
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+                  <CalendarDays className="h-3.5 w-3.5" />
+                  Time Range
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {ACTIVITY_QUICK_RANGES.map((range) => {
+                    const preset = getDefaultActivityRange(range.days);
+                    const isActive =
+                      activityRange.startDate === preset.startDate &&
+                      activityRange.endDate === preset.endDate;
+
+                    return (
+                      <button
+                        key={range.value}
+                        type="button"
+                        onClick={() => setQuickActivityRange(range.days)}
+                        className={`rounded-md border px-3 py-2 text-xs font-medium transition ${
+                          isActive
+                            ? 'border-cyan-300/40 bg-cyan-300/15 text-cyan-100'
+                            : 'border-white/10 bg-black/15 text-slate-400 hover:border-white/20 hover:text-white'
+                        }`}
+                      >
+                        {range.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <label className="text-xs text-slate-500">
+                    Start
+                    <input
+                      type="date"
+                      value={activityRange.startDate}
+                      onChange={(event) =>
+                        setActivityDate('startDate', event.target.value)
+                      }
+                      className="mt-1 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none transition focus:border-cyan-300/50"
+                    />
+                  </label>
+                  <label className="text-xs text-slate-500">
+                    End
+                    <input
+                      type="date"
+                      value={activityRange.endDate}
+                      onChange={(event) =>
+                        setActivityDate('endDate', event.target.value)
+                      }
+                      className="mt-1 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none transition focus:border-cyan-300/50"
+                    />
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 border-t border-white/10 pt-4">
+              <div className="relative max-w-2xl">
+                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                    Goal Selection
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsActivityGoalMenuOpen((isOpen) => !isOpen)}
+                    className="mt-2 flex w-full items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 text-left transition hover:border-white/20 hover:bg-white/[0.04]"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <div className="flex -space-x-1">
+                          {visibleActivityInsights.series.slice(0, 4).map((group) => (
+                            <span
+                              key={group.key}
+                              className="h-3 w-3 rounded-full border border-[#080816]"
+                              style={{
+                                backgroundColor: activityInsights.colorByKey.get(
+                                  group.key
+                                ),
+                              }}
+                            />
+                          ))}
+                        </div>
+                        <span className="truncate text-sm font-medium text-white">
+                          {activityGoalSelectionLabel}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {activityGoalSelectionDetail}
+                      </div>
+                    </div>
+                    <ChevronDown
+                      className={`h-4 w-4 flex-shrink-0 text-slate-500 transition ${
+                        isActivityGoalMenuOpen ? 'rotate-180' : ''
+                      }`}
+                    />
+                  </button>
+
+                  {isActivityGoalMenuOpen ? (
+                    <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-xl border border-white/10 bg-[#080816] shadow-2xl shadow-black/50">
+                      <div className="flex items-center justify-between gap-2 border-b border-white/10 px-3 py-2">
+                        <div className="text-xs text-slate-500">
+                          {selectedActivityCount} of {activityGroupKeys.length} shown
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={selectAllActivityGroups}
+                            className={`rounded-md border px-2.5 py-1 text-xs font-medium transition ${
+                              allActivityGroupsSelected
+                                ? 'border-emerald-300/40 bg-emerald-300/15 text-emerald-100'
+                                : 'border-white/10 text-slate-400 hover:border-white/20 hover:text-white'
+                            }`}
+                          >
+                            All
+                          </button>
+                          <button
+                            type="button"
+                            onClick={clearActivityGroups}
+                            className="rounded-md border border-white/10 px-2.5 py-1 text-xs font-medium text-slate-400 transition hover:border-white/20 hover:text-white"
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+
+                      {activityInsights.series.length === 0 ? (
+                        <div className="px-3 py-4 text-sm text-slate-500">
+                          Goals will appear here once analytics data is loaded.
+                        </div>
+                      ) : (
+                        <div className="max-h-72 overflow-y-auto p-2">
+                          {activityInsights.series.map((group) => {
+                            const isSelected = selectedActivityGroupKeys.has(
+                              group.key
+                            );
+
+                            return (
+                              <button
+                                key={group.key}
+                                type="button"
+                                onClick={() => toggleActivityGroup(group.key)}
+                                className={`flex w-full min-w-0 items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition ${
+                                  isSelected
+                                    ? 'bg-white/10 text-white'
+                                    : 'text-slate-400 hover:bg-white/[0.05] hover:text-white'
+                                }`}
+                              >
+                                <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center">
+                                  {isSelected ? (
+                                    <Check className="h-3.5 w-3.5 text-emerald-300" />
+                                  ) : null}
+                                </span>
+                                <span
+                                  className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
+                                  style={{
+                                    backgroundColor: activityInsights.colorByKey.get(
+                                      group.key
+                                    ),
+                                  }}
+                                />
+                                <span className="min-w-0 flex-1 truncate">
+                                  {group.label}
+                                </span>
+                                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium text-slate-300">
+                                  {group.total} logs
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      <div className="border-t border-white/10 px-3 py-2">
+                        <button
+                          type="button"
+                          onClick={() => setIsActivityGoalMenuOpen(false)}
+                          className="w-full rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-950 transition hover:bg-slate-200"
+                        >
+                          Done
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+              </div>
+            </div>
+          </div>
+
+          {activityError ? (
+            <div className="mb-4 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+              {activityError}
+            </div>
+          ) : null}
+
+          {isActivityLoading ? (
             <EmptyState
               icon={BarChart2}
-              title="No recent activity"
-              body="Recent logs will appear here grouped by goal."
+              title="Loading activity graph"
+              body="Fetching logs for the selected range."
+            />
+          ) : activityInsights.series.length === 0 ? (
+            <EmptyState
+              icon={BarChart2}
+              title="No goals to graph"
+              body="Create goals or log activity to start comparing trends."
+            />
+          ) : selectedActivityCount === 0 ? (
+            <EmptyState
+              icon={BarChart2}
+              title="No goals selected"
+              body="Choose at least one goal to see the activity graph."
             />
           ) : (
-            <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_260px]">
-              <div className="min-h-[300px]">
-                <ResponsiveContainer width="100%" height={300}>
+            <div className="min-h-[320px]">
+              <ResponsiveContainer width="100%" height={320}>
+                {activityChartType === 'stacked' ? (
                   <BarChart
-                    data={activityInsights.rows}
+                    data={visibleActivityInsights.rows}
                     margin={{ top: 8, right: 8, bottom: 8, left: -20 }}
                   >
                     <CartesianGrid
@@ -929,15 +1412,19 @@ export default function AnalyticsPage() {
                       axisLine={false}
                       tickLine={false}
                       allowDecimals={false}
+                      domain={[0, (dataMax) => Math.max(1, dataMax)]}
                     />
-                    <Tooltip content={<ActivityTooltip />} cursor={{ fill: 'rgba(255,255,255,0.05)' }} />
+                    <Tooltip
+                      content={<ActivityTooltip />}
+                      cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                    />
                     <Legend
                       wrapperStyle={{ fontSize: 11, color: '#94a3b8' }}
                       formatter={(value) => (
                         <span className="text-xs text-slate-400">{value}</span>
                       )}
                     />
-                    {activityInsights.series.map((group, index) => (
+                    {visibleActivityInsights.series.map((group, index) => (
                       <Bar
                         key={group.key}
                         dataKey={group.key}
@@ -945,40 +1432,61 @@ export default function AnalyticsPage() {
                         name={group.label}
                         fill={activityInsights.colorByKey.get(group.key)}
                         radius={
-                          index === activityInsights.series.length - 1
+                          index === visibleActivityInsights.series.length - 1
                             ? [6, 6, 0, 0]
                             : [0, 0, 0, 0]
                         }
                       />
                     ))}
                   </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              <div className="space-y-2">
-                {activityInsights.series.map((group) => (
-                  <div
-                    key={group.key}
-                    className="flex items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2"
+                ) : (
+                  <LineChart
+                    data={visibleActivityInsights.rows}
+                    margin={{ top: 8, right: 14, bottom: 8, left: -20 }}
                   >
-                    <span
-                      className="h-2.5 w-2.5 rounded-full flex-shrink-0"
-                      style={{
-                        backgroundColor: activityInsights.colorByKey.get(group.key),
-                      }}
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="rgba(255,255,255,0.05)"
                     />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm text-white">{group.label}</div>
-                      <div className="text-xs text-slate-500">
-                        {formatMinutes(group.minutes)}
-                      </div>
-                    </div>
-                    <div className="text-sm font-semibold text-white">
-                      {group.total}
-                    </div>
-                  </div>
-                ))}
-              </div>
+                    <XAxis
+                      dataKey="day"
+                      tick={{ fill: '#94a3b8', fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      tick={{ fill: '#94a3b8', fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                      allowDecimals={false}
+                      domain={[0, (dataMax) => Math.max(1, dataMax)]}
+                    />
+                    <Tooltip
+                      content={<ActivityTooltip />}
+                      cursor={{ stroke: 'rgba(255,255,255,0.08)' }}
+                    />
+                    <Legend
+                      wrapperStyle={{ fontSize: 11, color: '#94a3b8' }}
+                      formatter={(value) => (
+                        <span className="text-xs text-slate-400">{value}</span>
+                      )}
+                    />
+                    {visibleActivityInsights.series.map((group) => (
+                      <Line
+                        key={group.key}
+                        type="monotone"
+                        dataKey={group.key}
+                        name={group.label}
+                        stroke={activityInsights.colorByKey.get(group.key)}
+                        strokeWidth={2.5}
+                        dot={{ r: 2.5 }}
+                        activeDot={{ r: 5 }}
+                        connectNulls
+                      />
+                    ))}
+                  </LineChart>
+                )}
+              </ResponsiveContainer>
             </div>
           )}
         </ChartCard>

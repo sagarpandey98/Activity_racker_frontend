@@ -7,7 +7,7 @@ function hasChildren(goal) {
   return Array.isArray(goal?.childGoals) && goal.childGoals.length > 0;
 }
 
-export default function GoalTree({ goals, onEdit, onAddChild, onDelete }) {
+export default function GoalTree({ goals, onEdit, onAddChild, onDelete, onViewDetails }) {
   const [expanded, setExpanded] = useState(() => ({}));
 
   const roots = useMemo(() => (Array.isArray(goals) ? goals : []), [goals]);
@@ -42,6 +42,7 @@ export default function GoalTree({ goals, onEdit, onAddChild, onDelete }) {
           onEdit={onEdit}
           onAddChild={onAddChild}
           onDelete={onDelete}
+          onViewDetails={onViewDetails}
         />
 
         {showToggle && isOpen && (

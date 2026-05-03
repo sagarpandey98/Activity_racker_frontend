@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
-import { getPriorityColor, getPriorityLabel, getStatusColor } from '@/lib/utils/goalUtils';
+import { getPriorityColor, getPriorityLabel, getStatusColor, isMilestoneGoal } from '@/lib/utils/goalUtils';
 import { formatHealthScore, getHealthBadgeClass } from '@/lib/utils/healthUtils';
 
 function Badge({ className, children }) {
@@ -39,10 +39,12 @@ export default function GoalList({ goals, onEdit, onDelete }) {
       </div>
 
       {rows.map((g) => {
+        const milestone = isMilestoneGoal(g);
         const healthScore = g?.healthScore;
         const effectivePriorityScore = g?.effectivePriorityScore;
-        const progressText =
-          g?.targetValue !== null && g?.targetValue !== undefined
+        const progressText = milestone
+          ? '—'
+          : g?.targetValue !== null && g?.targetValue !== undefined
             ? `${g?.currentValue ?? 0}/${g?.targetValue}`
             : '—';
 
@@ -84,7 +86,9 @@ export default function GoalList({ goals, onEdit, onDelete }) {
               </div>
 
               <div className="w-40">
-                {healthScore !== null && healthScore !== undefined ? (
+                {milestone ? (
+                  <span className="text-xs text-violet-300">Milestone</span>
+                ) : healthScore !== null && healthScore !== undefined ? (
                   <Badge className={getHealthBadgeClass(healthScore)}>
                     {formatHealthScore(healthScore)}
                   </Badge>

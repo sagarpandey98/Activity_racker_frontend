@@ -43,6 +43,14 @@ export default function TodayFocus({ limit = 10 }) {
     console.log('Delete goal:', goal);
   };
 
+  const handleViewDetails = (goal) => {
+    // Navigate to analytics page with goal details
+    const goalId = goal?.id || goal?.uuid;
+    if (goalId) {
+      window.location.href = `/analytics?goal=${goalId}`;
+    }
+  };
+
   if (loading) {
     return (
       <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-6">
@@ -100,6 +108,7 @@ export default function TodayFocus({ limit = 10 }) {
               onEdit={handleEdit}
               onAddChild={handleAddChild}
               onDelete={handleDelete}
+              onViewDetails={handleViewDetails}
               level={0}
             />
           ))}
