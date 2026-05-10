@@ -284,6 +284,59 @@ function getProgressValue(value) {
   return Number.isFinite(number) ? Math.max(0, Math.min(100, number)) : 0;
 }
 
+function toOptionalNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function formatNumberValue(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '-';
+  return Number.isInteger(number) ? String(number) : number.toFixed(2);
+}
+
+function getPeriodTargetInfo(period, goal) {
+  const candidates = [
+    { value: period?.targetValue, label: 'period target' },
+    { value: period?.periodTarget, label: 'period target' },
+    { value: period?.requiredValue, label: 'period required value' },
+    { value: period?.minimumSessionDaily, label: 'period minimum activity' },
+    { value: goal?.maximumSessionPeriod, label: 'goal max activity per period' },
+    { value: goal?.minimumSessionPeriod, label: 'goal min activity per period' },
+    { value: goal?.targetValue, label: 'goal total target fallback' },
+  ];
+
+  const match = candidates.find((candidate) => {
+    const number = Number(candidate.value);
+    return Number.isFinite(number) && number > 0;
+  });
+
+  if (!match) return null;
+
+  return {
+    value: Number(match.value),
+    label: match.label,
+  };
+}
+
+function getPeriodCalculation(period, goal) {
+  const backendProgress = getProgressValue(period?.progressPercentage);
+  const currentValue = toOptionalNumber(period?.currentValue) ?? 0;
+  const targetInfo = getPeriodTargetInfo(period, goal);
+  const derivedProgress = targetInfo
+    ? Math.max(0, Math.min(100, (currentValue / targetInfo.value) * 100))
+    : null;
+
+  return {
+    backendProgress,
+    currentValue,
+    targetInfo,
+    derivedProgress,
+    usesBackendSource: derivedProgress === null || Math.abs(derivedProgress - backendProgress) > 1,
+  };
+}
+
 function getPeriodHealthClasses(status) {
   const normalized = String(status || '').toUpperCase();
 
@@ -448,22 +501,71 @@ function ActivityList({ activities }) {
   );
 }
 
-function PeriodSummaryTooltip({ period }) {
-  const progress = getProgressValue(period?.progressPercentage);
+function PeriodSummaryTooltip({ period, goal, className = '' }) {
+  const {
+    backendProgress,
+    currentValue,
+    targetInfo,
+    derivedProgress,
+    usesBackendSource,
+  } = getPeriodCalculation(period, goal);
+  const scoreRows = [
+    { label: 'Progress score', value: period?.progressScore },
+    { label: 'Consistency score', value: period?.consistencyScore },
+    { label: 'Momentum score', value: period?.momentumScore },
+    { label: 'Health score', value: period?.healthScore },
+  ].filter((row) => toOptionalNumber(row.value) !== null);
 
   return (
-    <div className="pointer-events-none absolute left-2 top-8 z-30 hidden w-64 rounded-xl border border-white/10 bg-[#080816] p-3 text-left shadow-2xl shadow-black/50 group-hover:block">
+    <div className={`pointer-events-none absolute left-2 top-8 z-30 hidden w-80 rounded-xl border border-white/10 bg-[#080816] p-3 text-left shadow-2xl shadow-black/50 group-hover:block ${className}`}>
       <div className="text-xs font-semibold text-white">
         {formatDate(getPeriodStart(period), { withYear: false })} - {formatDate(getPeriodEnd(period), { withYear: false })}
       </div>
+      <div className="mt-3 rounded-lg border border-indigo-400/20 bg-indigo-500/10 p-2">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-indigo-200">
+            Overall period percentage
+          </span>
+          <span className="text-lg font-semibold text-white">
+            {Math.round(backendProgress)}%
+          </span>
+        </div>
+        <div className="mt-1 text-[11px] leading-relaxed text-slate-400">
+          This is the period&apos;s <span className="text-slate-200">progressPercentage</span> from the backend snapshot.
+        </div>
+      </div>
+
+      <div className="mt-2 rounded-lg bg-white/[0.04] p-2">
+        <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+          Calculation visibility
+        </div>
+        {targetInfo ? (
+          <>
+            <div className="mt-1 font-mono text-[11px] text-slate-200">
+              {formatNumberValue(currentValue)} / {formatNumberValue(targetInfo.value)} x 100 = {formatNumberValue(derivedProgress)}%
+            </div>
+            <div className="mt-1 text-[11px] leading-relaxed text-slate-400">
+              Current value divided by <span className="text-slate-200">{targetInfo.label}</span>.
+              {usesBackendSource ? ' The displayed percentage still follows the backend period snapshot when its calculated value differs.' : ''}
+            </div>
+          </>
+        ) : (
+          <div className="mt-1 text-[11px] leading-relaxed text-slate-400">
+            Target basis was not available in this period/goal response, so the backend period percentage is shown as the source of truth.
+          </div>
+        )}
+      </div>
+
       <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
         <div className="rounded-lg bg-white/[0.04] px-2 py-1">
-          <div className="text-slate-500">Progress</div>
-          <div className="font-semibold text-white">{Math.round(progress)}%</div>
+          <div className="text-slate-500">Current</div>
+          <div className="font-semibold text-white">{formatNumberValue(currentValue)}</div>
         </div>
         <div className="rounded-lg bg-white/[0.04] px-2 py-1">
-          <div className="text-slate-500">Current</div>
-          <div className="font-semibold text-white">{period?.currentValue ?? 0}</div>
+          <div className="text-slate-500">Target basis</div>
+          <div className="font-semibold text-white">
+            {targetInfo ? formatNumberValue(targetInfo.value) : '-'}
+          </div>
         </div>
         <div className="rounded-lg bg-white/[0.04] px-2 py-1">
           <div className="text-slate-500">Health</div>
@@ -474,11 +576,22 @@ function PeriodSummaryTooltip({ period }) {
           <div className="font-semibold text-white">{period?.currentStreak ?? 0}</div>
         </div>
       </div>
+
+      {scoreRows.length > 0 ? (
+        <div className="mt-2 space-y-1 rounded-lg bg-black/25 p-2 text-[11px]">
+          {scoreRows.map((row) => (
+            <div key={row.label} className="flex items-center justify-between gap-3">
+              <span className="text-slate-500">{row.label}</span>
+              <span className="font-medium text-slate-200">{formatNumberValue(row.value)}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function GoalPeriodsCalendar({ periods, monthDate, onPreviousMonth, onNextMonth }) {
+function GoalPeriodsCalendar({ periods, goal, monthDate, onPreviousMonth, onNextMonth }) {
   const calendarDays = getCalendarDays(monthDate);
 
   return (
@@ -556,7 +669,7 @@ function GoalPeriodsCalendar({ periods, monthDate, onPreviousMonth, onNextMonth 
                           style={{ width: `${progress}%` }}
                         />
                       </div>
-                      <PeriodSummaryTooltip period={period} />
+                      <PeriodSummaryTooltip period={period} goal={goal} />
                     </div>
                   );
                 })}
@@ -569,6 +682,53 @@ function GoalPeriodsCalendar({ periods, monthDate, onPreviousMonth, onNextMonth 
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function PeriodCalculationInline({ period, goal }) {
+  const {
+    backendProgress,
+    currentValue,
+    targetInfo,
+    derivedProgress,
+    usesBackendSource,
+  } = getPeriodCalculation(period, goal);
+
+  return (
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+      <div>
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-indigo-200">
+          Overall period percentage
+        </div>
+        <div className="mt-1 text-2xl font-semibold text-white">
+          {Math.round(backendProgress)}%
+        </div>
+        <div className="mt-1 text-slate-400">
+          The period card uses backend <span className="text-slate-200">progressPercentage</span>.
+        </div>
+      </div>
+
+      <div>
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          Calculation
+        </div>
+        {targetInfo ? (
+          <>
+            <div className="mt-1 font-mono text-slate-200">
+              {formatNumberValue(currentValue)} / {formatNumberValue(targetInfo.value)} x 100 = {formatNumberValue(derivedProgress)}%
+            </div>
+            <div className="mt-1 text-slate-400">
+              Current value divided by {targetInfo.label}
+              {usesBackendSource ? '; backend value is used when it differs from this raw ratio.' : '.'}
+            </div>
+          </>
+        ) : (
+          <div className="mt-1 text-slate-400">
+            Target basis is missing from the response, so backend progressPercentage is the source of truth.
+          </div>
+        )}
       </div>
     </div>
   );
@@ -601,7 +761,7 @@ function GoalPeriodsList({ periods, goal }) {
           return (
             <div
               key={getPeriodId(period) || `${getPeriodStart(period)}-${getPeriodEnd(period)}`}
-              className="grid grid-cols-1 gap-3 px-4 py-4 transition hover:bg-white/[0.025] lg:grid-cols-[minmax(0,1.3fr)_110px_110px_110px_130px] lg:items-center"
+              className="group relative grid grid-cols-1 gap-3 px-4 py-4 transition hover:bg-white/[0.025] lg:grid-cols-[minmax(0,1.3fr)_110px_110px_110px_130px] lg:items-center"
             >
               <div>
                 <div className="text-sm font-medium text-white">
@@ -619,6 +779,9 @@ function GoalPeriodsList({ periods, goal }) {
                     className="h-1.5 rounded-full bg-indigo-400"
                     style={{ width: `${progress}%` }}
                   />
+                </div>
+                <div className="mt-1 hidden text-[10px] text-slate-500 lg:block">
+                  Hover for formula
                 </div>
               </div>
               <div>
@@ -648,6 +811,9 @@ function GoalPeriodsList({ periods, goal }) {
                 <div className="text-xs text-slate-500">
                   {period?.longestStreak ?? 0} longest
                 </div>
+              </div>
+              <div className="hidden rounded-xl border border-white/10 bg-white/[0.035] p-3 text-xs lg:col-span-5 group-hover:block">
+                <PeriodCalculationInline period={period} goal={goal} />
               </div>
             </div>
           );
@@ -1256,6 +1422,7 @@ export default function GoalDetailPage() {
           ) : periodView === 'calendar' ? (
             <GoalPeriodsCalendar
               periods={periods}
+              goal={goal}
               monthDate={calendarMonth}
               onPreviousMonth={goToPreviousMonth}
               onNextMonth={goToNextMonth}
