@@ -41,9 +41,6 @@ const CHART_COLORS = ['#60a5fa', '#34d399', '#f59e0b', '#f87171', '#a78bfa', '#2
 const DAY_START_HOUR = 6;
 const DAY_END_HOUR = 23;
 const HOUR_HEIGHT = 86;
-// Ceiling for a block derived from a configured time window so a broad availability window
-// (e.g. 06:00-22:00) does not render as one giant block.
-const MAX_WINDOW_BLOCK_MINUTES = 4 * 60;
 const SHOW_UP_STORAGE_PREFIX = 'northstar_show_up_tasks';
 
 const PRIORITY_META = {
@@ -249,9 +246,7 @@ function getTodoDuration(todo) {
     todo.minimumTimeCommittedDaily,
   ];
   const value = candidates.map(Number).find((item) => Number.isFinite(item) && item > 0);
-  // Honor short configured sessions (e.g. a 15- or 20-minute "time per activity") instead of
-  // forcing every task to at least 30 minutes; keep a small guard against zero/garbage values.
-  return Math.max(5, Math.round(value || 45));
+  return Math.max(30, Math.round(value || 45));
 }
 
 function isCompleted(todo) {
@@ -525,23 +520,6 @@ function getExplicitStartMinutes(todo, selectedDate) {
   return null;
 }
 
-function getExplicitEndMinutes(todo, selectedDate) {
-  const candidates = [
-    todo.scheduledEndTime,
-    todo.loggedEndTime,
-    todo.endTime,
-    todo.endedAt,
-    todo.endAt,
-  ];
-
-  for (const value of candidates) {
-    const minutes = extractMinutesFromValue(value, selectedDate);
-    if (minutes !== null) return minutes;
-  }
-
-  return null;
-}
-
 function compareTodos(a, b) {
   const statusA = getStatusMeta(a.todoStatus).rank;
   const statusB = getStatusMeta(b.todoStatus).rank;
@@ -563,13 +541,8 @@ function buildTimelineBlocks(todos, selectedDate) {
   const blocks = [...todos].sort(compareTodos).map((todo, index) => {
     const duration = getTodoDuration(todo);
     const explicitStart = getExplicitStartMinutes(todo, selectedDate);
-    const explicitEnd = getExplicitEndMinutes(todo, selectedDate);
     const start = Math.min(explicitStart ?? cursor, 23 * 60 + 30);
-    // Prefer a configured window end, but never let a broad availability window balloon the block.
-    const rawEnd = explicitEnd !== null && explicitEnd > start
-      ? Math.min(explicitEnd, start + Math.max(duration, MAX_WINDOW_BLOCK_MINUTES), 24 * 60)
-      : Math.min(start + duration, 24 * 60);
-    const end = Math.min(24 * 60, Math.max(rawEnd, start + 5));
+    const end = Math.min(start + duration, 24 * 60);
 
     if (explicitStart === null) {
       cursor = Math.min(end + 10, 23 * 60 + 30);
@@ -579,8 +552,8 @@ function buildTimelineBlocks(todos, selectedDate) {
       todo,
       key: getTodoKey(todo, index),
       start,
-      end,
-      duration: Math.max(5, end - start),
+      end: Math.min(24 * 60, Math.max(end, start + 30)),
+      duration,
       hasExplicitTime: explicitStart !== null,
     };
   });
@@ -765,17 +738,15 @@ export default function SmartTodo() {
 
   const handleTodoClick = useCallback((todo) => {
     const startMinutes = getExplicitStartMinutes(todo, selectedDate);
-    const endMinutes = getExplicitEndMinutes(todo, selectedDate);
     const duration = getTodoDuration(todo);
-    const resolvedEnd = endMinutes !== null && startMinutes !== null && endMinutes > startMinutes
-      ? Math.min(endMinutes, 23 * 60 + 59)
-      : (startMinutes === null ? null : Math.min(startMinutes + duration, 23 * 60 + 59));
     const prefill = {
       ...todo,
       activityName: getTodoTitle(todo),
       activityDate: selectedDate,
       startTime: startMinutes === null ? todo.startTime : minutesToTimeInput(startMinutes),
-      endTime: resolvedEnd === null ? todo.endTime : minutesToTimeInput(resolvedEnd),
+      endTime: startMinutes === null
+        ? todo.endTime
+        : minutesToTimeInput(Math.min(startMinutes + duration, 23 * 60 + 59)),
       isAdhoc: todo.isAdhoc || todo.isActivityLog || !todo.goalId,
     };
     setPrefillGoal(prefill);

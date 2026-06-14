@@ -296,47 +296,6 @@ function formatNumberValue(value) {
   return Number.isInteger(number) ? String(number) : number.toFixed(2);
 }
 
-function getPeriodTargetInfo(period, goal) {
-  const candidates = [
-    { value: period?.targetValue, label: 'period target' },
-    { value: period?.periodTarget, label: 'period target' },
-    { value: period?.requiredValue, label: 'period required value' },
-    { value: period?.minimumSessionDaily, label: 'period minimum activity' },
-    { value: goal?.maximumSessionPeriod, label: 'goal max activity per period' },
-    { value: goal?.minimumSessionPeriod, label: 'goal min activity per period' },
-    { value: goal?.targetValue, label: 'goal total target fallback' },
-  ];
-
-  const match = candidates.find((candidate) => {
-    const number = Number(candidate.value);
-    return Number.isFinite(number) && number > 0;
-  });
-
-  if (!match) return null;
-
-  return {
-    value: Number(match.value),
-    label: match.label,
-  };
-}
-
-function getPeriodCalculation(period, goal) {
-  const backendProgress = getProgressValue(period?.progressPercentage);
-  const currentValue = toOptionalNumber(period?.currentValue) ?? 0;
-  const targetInfo = getPeriodTargetInfo(period, goal);
-  const derivedProgress = targetInfo
-    ? Math.max(0, Math.min(100, (currentValue / targetInfo.value) * 100))
-    : null;
-
-  return {
-    backendProgress,
-    currentValue,
-    targetInfo,
-    derivedProgress,
-    usesBackendSource: derivedProgress === null || Math.abs(derivedProgress - backendProgress) > 1,
-  };
-}
-
 function getPeriodHealthClasses(status) {
   const normalized = String(status || '').toUpperCase();
 
@@ -353,6 +312,47 @@ function getPeriodHealthClasses(status) {
   }
 
   return 'border-slate-500/25 bg-slate-500/10 text-slate-300';
+}
+
+function formatScore(value) {
+  const number = toOptionalNumber(value);
+  return number === null ? '-' : `${Math.round(number)}%`;
+}
+
+function formatUnitValue(value, unitLabel = 'units') {
+  const label = unitLabel || 'units';
+  const number = toOptionalNumber(value) ?? 0;
+  return `${formatNumberValue(number)} ${label}`;
+}
+
+function getBreakdownScore(period, breakdown, key) {
+  return toOptionalNumber(breakdown?.[key] ?? period?.[key]);
+}
+
+function getBreakdownStatus(period, breakdown) {
+  return breakdown?.healthStatus || period?.healthStatus || 'UNTRACKED';
+}
+
+function getMomentumTrendLabel(trend) {
+  const labels = {
+    FIRST_PERIOD: 'First scored period',
+    NO_BASELINE: 'No baseline yet',
+    IMPROVING: 'Improving',
+    DECLINING: 'Declining',
+    RECOVERING: 'Recovering',
+    FLAT_ZERO: 'Flat zero',
+    UNTRACKED: 'Untracked',
+  };
+
+  return labels[String(trend || '').toUpperCase()] || 'No trend yet';
+}
+
+function getBreakdownWeight(breakdown, key) {
+  return toOptionalNumber(
+    breakdown?.scoreWeights?.[key] ??
+      breakdown?.weights?.[key] ??
+      breakdown?.[`${key}Weight`]
+  );
 }
 
 function getMonthLabel(date) {
@@ -501,97 +501,196 @@ function ActivityList({ activities }) {
   );
 }
 
-function PeriodSummaryTooltip({ period, goal, className = '' }) {
-  const {
-    backendProgress,
-    currentValue,
-    targetInfo,
-    derivedProgress,
-    usesBackendSource,
-  } = getPeriodCalculation(period, goal);
+function PeriodSummaryTooltip({
+  period,
+  breakdown,
+  isLoading,
+  error,
+  className = '',
+}) {
+  const unitLabel = breakdown?.unitLabel || 'units';
+  const healthScore = getBreakdownScore(period, breakdown, 'healthScore');
+  const progressSnapshot = getProgressValue(period?.progressPercentage);
+  const status = getBreakdownStatus(period, breakdown);
+  const hasBreakdown = Boolean(breakdown);
   const scoreRows = [
-    { label: 'Progress score', value: period?.progressScore },
-    { label: 'Consistency score', value: period?.consistencyScore },
-    { label: 'Momentum score', value: period?.momentumScore },
-    { label: 'Health score', value: period?.healthScore },
-  ].filter((row) => toOptionalNumber(row.value) !== null);
+    {
+      key: 'consistency',
+      label: 'Consistency',
+      value: getBreakdownScore(period, breakdown, 'consistencyScore'),
+      weight: getBreakdownWeight(breakdown, 'consistency'),
+    },
+    {
+      key: 'progress',
+      label: 'Progress',
+      value: getBreakdownScore(period, breakdown, 'progressScore'),
+      weight: getBreakdownWeight(breakdown, 'progress'),
+    },
+    {
+      key: 'momentum',
+      label: 'Momentum',
+      value: getBreakdownScore(period, breakdown, 'momentumScore'),
+      weight: getBreakdownWeight(breakdown, 'momentum'),
+    },
+  ];
+  const dailyDetails = Array.isArray(breakdown?.dailyDetails)
+    ? breakdown.dailyDetails.slice(0, 4)
+    : [];
 
   return (
-    <div className={`pointer-events-none absolute left-2 top-8 z-30 hidden w-80 rounded-xl border border-white/10 bg-[#080816] p-3 text-left shadow-2xl shadow-black/50 group-hover:block ${className}`}>
+    <div className={`pointer-events-none absolute left-2 top-8 z-30 hidden w-96 max-w-[calc(100vw-2rem)] rounded-xl border border-white/10 bg-[#080816] p-3 text-left shadow-2xl shadow-black/50 group-hover:block group-focus-within:block ${className}`}>
       <div className="text-xs font-semibold text-white">
         {formatDate(getPeriodStart(period), { withYear: false })} - {formatDate(getPeriodEnd(period), { withYear: false })}
       </div>
       <div className="mt-3 rounded-lg border border-indigo-400/20 bg-indigo-500/10 p-2">
         <div className="flex items-center justify-between gap-3">
           <span className="text-[11px] font-medium uppercase tracking-wide text-indigo-200">
-            Overall period percentage
+            Overall health
           </span>
           <span className="text-lg font-semibold text-white">
-            {Math.round(backendProgress)}%
+            {formatScore(healthScore)}
           </span>
         </div>
-        <div className="mt-1 text-[11px] leading-relaxed text-slate-400">
-          This is the period&apos;s <span className="text-slate-200">progressPercentage</span> from the backend snapshot.
+        <div className="mt-1 flex items-center justify-between gap-3 text-[11px]">
+          <span className="text-slate-400">Status</span>
+          <span className={`rounded-full border px-2 py-0.5 ${getPeriodHealthClasses(status)}`}>
+            {status}
+          </span>
         </div>
       </div>
 
       <div className="mt-2 rounded-lg bg-white/[0.04] p-2">
         <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
-          Calculation visibility
+          How health is calculated
         </div>
-        {targetInfo ? (
-          <>
-            <div className="mt-1 font-mono text-[11px] text-slate-200">
-              {formatNumberValue(currentValue)} / {formatNumberValue(targetInfo.value)} x 100 = {formatNumberValue(derivedProgress)}%
-            </div>
-            <div className="mt-1 text-[11px] leading-relaxed text-slate-400">
-              Current value divided by <span className="text-slate-200">{targetInfo.label}</span>.
-              {usesBackendSource ? ' The displayed percentage still follows the backend period snapshot when its calculated value differs.' : ''}
-            </div>
-          </>
-        ) : (
-          <div className="mt-1 text-[11px] leading-relaxed text-slate-400">
-            Target basis was not available in this period/goal response, so the backend period percentage is shown as the source of truth.
-          </div>
-        )}
-      </div>
-
-      <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
-        <div className="rounded-lg bg-white/[0.04] px-2 py-1">
-          <div className="text-slate-500">Current</div>
-          <div className="font-semibold text-white">{formatNumberValue(currentValue)}</div>
-        </div>
-        <div className="rounded-lg bg-white/[0.04] px-2 py-1">
-          <div className="text-slate-500">Target basis</div>
-          <div className="font-semibold text-white">
-            {targetInfo ? formatNumberValue(targetInfo.value) : '-'}
-          </div>
-        </div>
-        <div className="rounded-lg bg-white/[0.04] px-2 py-1">
-          <div className="text-slate-500">Health</div>
-          <div className="font-semibold text-white">{period?.healthStatus || '-'}</div>
-        </div>
-        <div className="rounded-lg bg-white/[0.04] px-2 py-1">
-          <div className="text-slate-500">Streak</div>
-          <div className="font-semibold text-white">{period?.currentStreak ?? 0}</div>
+        <div className="mt-1 text-[11px] leading-relaxed text-slate-400">
+          Health is a weighted blend of consistency, progress, and momentum.
+          Consistency checks the expected work pattern, progress checks target
+          units, and momentum compares this period with recent periods.
         </div>
       </div>
 
-      {scoreRows.length > 0 ? (
-        <div className="mt-2 space-y-1 rounded-lg bg-black/25 p-2 text-[11px]">
-          {scoreRows.map((row) => (
-            <div key={row.label} className="flex items-center justify-between gap-3">
-              <span className="text-slate-500">{row.label}</span>
-              <span className="font-medium text-slate-200">{formatNumberValue(row.value)}</span>
+      <div className="mt-2 grid grid-cols-3 gap-2 text-[11px]">
+        {scoreRows.map((row) => (
+          <div key={row.key} className="rounded-lg bg-white/[0.04] px-2 py-1">
+            <div className="text-slate-500">{row.label}</div>
+            <div className="font-semibold text-white">{formatScore(row.value)}</div>
+            <div className="text-[10px] text-slate-600">
+              Weight {row.weight === null ? '-' : formatNumberValue(row.weight)}
             </div>
-          ))}
+          </div>
+        ))}
+      </div>
+
+      {hasBreakdown ? (
+        <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
+          <div className="rounded-lg bg-white/[0.04] px-2 py-1">
+            <div className="text-slate-500">Actual to date</div>
+            <div className="font-semibold text-white">
+              {formatUnitValue(breakdown.actualUnitsToDate, unitLabel)}
+            </div>
+          </div>
+          <div className="rounded-lg bg-white/[0.04] px-2 py-1">
+            <div className="text-slate-500">Target expected</div>
+            <div className="font-semibold text-white">
+              {formatUnitValue(breakdown.expectedTargetUnitsToDate, unitLabel)}
+            </div>
+          </div>
+          <div className="rounded-lg bg-white/[0.04] px-2 py-1">
+            <div className="text-slate-500">Minimum expected</div>
+            <div className="font-semibold text-white">
+              {formatUnitValue(breakdown.expectedMinimumUnitsToDate, unitLabel)}
+            </div>
+          </div>
+          <div className="rounded-lg bg-white/[0.04] px-2 py-1">
+            <div className="text-slate-500">Progress snapshot</div>
+            <div className="font-semibold text-white">{Math.round(progressSnapshot)}%</div>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
+          <div className="rounded-lg bg-white/[0.04] px-2 py-1">
+            <div className="text-slate-500">Current value</div>
+            <div className="font-semibold text-white">
+              {formatNumberValue(period?.currentValue ?? 0)}
+            </div>
+          </div>
+          <div className="rounded-lg bg-white/[0.04] px-2 py-1">
+            <div className="text-slate-500">Progress snapshot</div>
+            <div className="font-semibold text-white">{Math.round(progressSnapshot)}%</div>
+          </div>
+        </div>
+      )}
+
+      {breakdown?.momentumBreakdown ? (
+        <div className="mt-2 rounded-lg bg-black/25 p-2 text-[11px]">
+          <div className="flex items-center justify-between gap-3">
+            <span className="font-medium text-slate-300">
+              {getMomentumTrendLabel(breakdown.momentumBreakdown.trend)}
+            </span>
+            <span className="text-slate-500">
+              Delta {formatScore(breakdown.momentumBreakdown.deltaFromBaseline)}
+            </span>
+          </div>
+          {breakdown.momentumBreakdown.explanation ? (
+            <div className="mt-1 leading-relaxed text-slate-500">
+              {breakdown.momentumBreakdown.explanation}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {dailyDetails.length > 0 ? (
+        <div className="mt-2 rounded-lg bg-black/25 p-2 text-[11px]">
+          <div className="mb-1 font-medium text-slate-300">
+            Daily expected vs actual
+          </div>
+          <div className="space-y-1">
+            {dailyDetails.map((day) => (
+              <div
+                key={day.date}
+                className="grid grid-cols-[64px_1fr_1fr] gap-2 text-slate-500"
+              >
+                <span>{formatDate(day.date, { withYear: false })}</span>
+                <span>Actual {formatNumberValue(day.actualUnits)}</span>
+                <span>
+                  Min {formatNumberValue(day.expectedMinimumUnits)} / Target{' '}
+                  {formatNumberValue(day.expectedTargetUnits)}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-1 leading-relaxed text-slate-600">
+            Daily fulfillment is capped per day, so bunching work on one day
+            cannot fully repair a missed scheduled day.
+          </div>
+        </div>
+      ) : null}
+
+      {isLoading ? (
+        <div className="mt-2 rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1 text-[11px] text-slate-400">
+          Loading schedule-aware breakdown...
+        </div>
+      ) : null}
+      {error ? (
+        <div className="mt-2 rounded-lg border border-red-400/20 bg-red-500/10 px-2 py-1 text-[11px] text-red-200">
+          {error}
         </div>
       ) : null}
     </div>
   );
 }
 
-function GoalPeriodsCalendar({ periods, goal, monthDate, onPreviousMonth, onNextMonth }) {
+function GoalPeriodsCalendar({
+  periods,
+  monthDate,
+  onPreviousMonth,
+  onNextMonth,
+  periodBreakdowns = {},
+  periodBreakdownLoading = {},
+  periodBreakdownErrors = {},
+  onPeriodHover,
+}) {
   const calendarDays = getCalendarDays(monthDate);
 
   return (
@@ -653,23 +752,37 @@ function GoalPeriodsCalendar({ periods, goal, monthDate, onPreviousMonth, onNext
               </div>
               <div className="space-y-1">
                 {dayPeriods.slice(0, 2).map((period) => {
-                  const progress = getProgressValue(period?.progressPercentage);
+                  const periodId = getPeriodId(period);
+                  const breakdown = periodBreakdowns[periodId];
+                  const healthScore = getBreakdownScore(period, breakdown, 'healthScore');
+                  const displayScore =
+                    healthScore === null
+                      ? getProgressValue(period?.progressPercentage)
+                      : getProgressValue(healthScore);
 
                   return (
                     <div
-                      key={getPeriodId(period) || `${day.dateKey}-${getPeriodStart(period)}`}
+                      key={periodId || `${day.dateKey}-${getPeriodStart(period)}`}
+                      tabIndex={0}
+                      onFocus={() => onPeriodHover?.(period)}
+                      onMouseEnter={() => onPeriodHover?.(period)}
                       className="group relative rounded-md border border-indigo-300/20 bg-indigo-500/15 px-2 py-1 text-[11px] text-indigo-100"
                     >
                       <div className="truncate">
-                        {Math.round(progress)}% period
+                        {Math.round(displayScore)}% health
                       </div>
                       <div className="mt-1 h-1 rounded-full bg-white/10">
                         <div
                           className="h-1 rounded-full bg-indigo-300"
-                          style={{ width: `${progress}%` }}
+                          style={{ width: `${displayScore}%` }}
                         />
                       </div>
-                      <PeriodSummaryTooltip period={period} goal={goal} />
+                      <PeriodSummaryTooltip
+                        period={period}
+                        breakdown={breakdown}
+                        isLoading={Boolean(periodBreakdownLoading[periodId])}
+                        error={periodBreakdownErrors[periodId]}
+                      />
                     </div>
                   );
                 })}
@@ -687,54 +800,120 @@ function GoalPeriodsCalendar({ periods, goal, monthDate, onPreviousMonth, onNext
   );
 }
 
-function PeriodCalculationInline({ period, goal }) {
-  const {
-    backendProgress,
-    currentValue,
-    targetInfo,
-    derivedProgress,
-    usesBackendSource,
-  } = getPeriodCalculation(period, goal);
+function PeriodHealthBreakdownInline({ period, breakdown, isLoading, error }) {
+  const unitLabel = breakdown?.unitLabel || 'units';
+  const healthScore = getBreakdownScore(period, breakdown, 'healthScore');
+  const hasBreakdown = Boolean(breakdown);
+  const scoreRows = [
+    {
+      label: 'Consistency',
+      value: getBreakdownScore(period, breakdown, 'consistencyScore'),
+      help: 'Expected minimum work pattern met to date',
+    },
+    {
+      label: 'Progress',
+      value: getBreakdownScore(period, breakdown, 'progressScore'),
+      help: 'Expected target work pattern met to date',
+    },
+    {
+      label: 'Momentum',
+      value: getBreakdownScore(period, breakdown, 'momentumScore'),
+      help: 'Current pace compared with recent periods',
+    },
+  ];
 
   return (
-    <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
       <div>
         <div className="text-[11px] font-semibold uppercase tracking-wide text-indigo-200">
-          Overall period percentage
+          Overall health
         </div>
         <div className="mt-1 text-2xl font-semibold text-white">
-          {Math.round(backendProgress)}%
+          {formatScore(healthScore)}
         </div>
         <div className="mt-1 text-slate-400">
-          The period card uses backend <span className="text-slate-200">progressPercentage</span>.
+          Weighted from consistency, progress, and momentum. Health is
+          schedule-aware, so it is not a simple percent-of-target.
+        </div>
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {scoreRows.map((row) => (
+            <div key={row.label} className="rounded-lg bg-black/20 p-2">
+              <div className="text-[11px] text-slate-500">{row.label}</div>
+              <div className="text-sm font-semibold text-white">
+                {formatScore(row.value)}
+              </div>
+              <div className="mt-1 text-[10px] leading-snug text-slate-600">
+                {row.help}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
       <div>
         <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-          Calculation
+          Expectation visibility
         </div>
-        {targetInfo ? (
-          <>
-            <div className="mt-1 font-mono text-slate-200">
-              {formatNumberValue(currentValue)} / {formatNumberValue(targetInfo.value)} x 100 = {formatNumberValue(derivedProgress)}%
+        {hasBreakdown ? (
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <div className="rounded-lg bg-black/20 p-2">
+              <div className="text-[11px] text-slate-500">Actual to date</div>
+              <div className="text-sm font-semibold text-white">
+                {formatUnitValue(breakdown.actualUnitsToDate, unitLabel)}
+              </div>
             </div>
-            <div className="mt-1 text-slate-400">
-              Current value divided by {targetInfo.label}
-              {usesBackendSource ? '; backend value is used when it differs from this raw ratio.' : '.'}
+            <div className="rounded-lg bg-black/20 p-2">
+              <div className="text-[11px] text-slate-500">Target expected</div>
+              <div className="text-sm font-semibold text-white">
+                {formatUnitValue(breakdown.expectedTargetUnitsToDate, unitLabel)}
+              </div>
             </div>
-          </>
+            <div className="rounded-lg bg-black/20 p-2">
+              <div className="text-[11px] text-slate-500">Minimum expected</div>
+              <div className="text-sm font-semibold text-white">
+                {formatUnitValue(breakdown.expectedMinimumUnitsToDate, unitLabel)}
+              </div>
+            </div>
+            <div className="rounded-lg bg-black/20 p-2">
+              <div className="text-[11px] text-slate-500">Period actual</div>
+              <div className="text-sm font-semibold text-white">
+                {formatUnitValue(breakdown.actualUnits, unitLabel)}
+              </div>
+            </div>
+          </div>
         ) : (
-          <div className="mt-1 text-slate-400">
-            Target basis is missing from the response, so backend progressPercentage is the source of truth.
+          <div className="mt-2 rounded-lg bg-black/20 p-2 text-slate-400">
+            Open this row or hover the period to load schedule-aware expectation
+            details from the backend.
           </div>
         )}
+        {breakdown?.momentumBreakdown ? (
+          <div className="mt-2 rounded-lg bg-black/20 p-2 text-slate-400">
+            {getMomentumTrendLabel(breakdown.momentumBreakdown.trend)}
+            {breakdown.momentumBreakdown.explanation
+              ? `: ${breakdown.momentumBreakdown.explanation}`
+              : ''}
+          </div>
+        ) : null}
+        {isLoading ? (
+          <div className="mt-2 text-slate-500">Loading health breakdown...</div>
+        ) : null}
+        {error ? (
+          <div className="mt-2 text-red-300">{error}</div>
+        ) : null}
       </div>
     </div>
   );
 }
 
-function GoalPeriodsList({ periods, goal }) {
+function GoalPeriodsList({
+  periods,
+  goal,
+  periodBreakdowns = {},
+  periodBreakdownLoading = {},
+  periodBreakdownErrors = {},
+  onPeriodHover,
+}) {
   if (periods.length === 0) {
     return (
       <EmptyState
@@ -755,12 +934,16 @@ function GoalPeriodsList({ periods, goal }) {
       </div>
       <div className="divide-y divide-white/[0.06]">
         {periods.map((period) => {
+          const periodId = getPeriodId(period);
+          const breakdown = periodBreakdowns[periodId];
           const progress = getProgressValue(period?.progressPercentage);
           const targetValue = Number(goal?.targetValue || 0);
 
           return (
             <div
-              key={getPeriodId(period) || `${getPeriodStart(period)}-${getPeriodEnd(period)}`}
+              key={periodId || `${getPeriodStart(period)}-${getPeriodEnd(period)}`}
+              onMouseEnter={() => onPeriodHover?.(period)}
+              onFocus={() => onPeriodHover?.(period)}
               className="group relative grid grid-cols-1 gap-3 px-4 py-4 transition hover:bg-white/[0.025] lg:grid-cols-[minmax(0,1.3fr)_110px_110px_110px_130px] lg:items-center"
             >
               <div>
@@ -781,7 +964,7 @@ function GoalPeriodsList({ periods, goal }) {
                   />
                 </div>
                 <div className="mt-1 hidden text-[10px] text-slate-500 lg:block">
-                  Hover for formula
+                  Hover for health details
                 </div>
               </div>
               <div>
@@ -813,7 +996,12 @@ function GoalPeriodsList({ periods, goal }) {
                 </div>
               </div>
               <div className="hidden rounded-xl border border-white/10 bg-white/[0.035] p-3 text-xs lg:col-span-5 group-hover:block">
-                <PeriodCalculationInline period={period} goal={goal} />
+                <PeriodHealthBreakdownInline
+                  period={period}
+                  breakdown={breakdown}
+                  isLoading={Boolean(periodBreakdownLoading[periodId])}
+                  error={periodBreakdownErrors[periodId]}
+                />
               </div>
             </div>
           );
@@ -846,6 +1034,9 @@ export default function GoalDetailPage() {
   const [periods, setPeriods] = useState([]);
   const [isPeriodsLoading, setIsPeriodsLoading] = useState(true);
   const [periodError, setPeriodError] = useState(null);
+  const [periodBreakdowns, setPeriodBreakdowns] = useState({});
+  const [periodBreakdownLoading, setPeriodBreakdownLoading] = useState({});
+  const [periodBreakdownErrors, setPeriodBreakdownErrors] = useState({});
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const today = new Date();
     return new Date(today.getFullYear(), today.getMonth(), 1);
@@ -865,6 +1056,12 @@ export default function GoalDetailPage() {
   useEffect(() => {
     fetchGoal();
   }, [fetchGoal]);
+
+  useEffect(() => {
+    setPeriodBreakdowns({});
+    setPeriodBreakdownLoading({});
+    setPeriodBreakdownErrors({});
+  }, [decodedGoalId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -951,6 +1148,48 @@ export default function GoalDetailPage() {
   useEffect(() => {
     fetchPeriods();
   }, [fetchPeriods]);
+
+  const fetchPeriodBreakdown = useCallback(
+    async (period) => {
+      const periodId = getPeriodId(period);
+      if (!decodedGoalId || !periodId) return;
+      if (periodBreakdowns[periodId] || periodBreakdownLoading[periodId]) {
+        return;
+      }
+
+      setPeriodBreakdownLoading((current) => ({
+        ...current,
+        [periodId]: true,
+      }));
+      setPeriodBreakdownErrors((current) => ({
+        ...current,
+        [periodId]: '',
+      }));
+
+      try {
+        const response = await goalPeriodsApi.getHealthBreakdown(
+          decodedGoalId,
+          periodId
+        );
+        setPeriodBreakdowns((current) => ({
+          ...current,
+          [periodId]: unwrapResponse(response) || response || null,
+        }));
+      } catch (breakdownError) {
+        setPeriodBreakdownErrors((current) => ({
+          ...current,
+          [periodId]:
+            breakdownError?.message || 'Unable to load health breakdown',
+        }));
+      } finally {
+        setPeriodBreakdownLoading((current) => ({
+          ...current,
+          [periodId]: false,
+        }));
+      }
+    },
+    [decodedGoalId, periodBreakdowns, periodBreakdownLoading]
+  );
 
   const activityData = useMemo(() => {
     const rows = getDateWindow(activityRange);
@@ -1422,13 +1661,23 @@ export default function GoalDetailPage() {
           ) : periodView === 'calendar' ? (
             <GoalPeriodsCalendar
               periods={periods}
-              goal={goal}
               monthDate={calendarMonth}
               onPreviousMonth={goToPreviousMonth}
               onNextMonth={goToNextMonth}
+              periodBreakdowns={periodBreakdowns}
+              periodBreakdownLoading={periodBreakdownLoading}
+              periodBreakdownErrors={periodBreakdownErrors}
+              onPeriodHover={fetchPeriodBreakdown}
             />
           ) : (
-            <GoalPeriodsList periods={periods} goal={goal} />
+            <GoalPeriodsList
+              periods={periods}
+              goal={goal}
+              periodBreakdowns={periodBreakdowns}
+              periodBreakdownLoading={periodBreakdownLoading}
+              periodBreakdownErrors={periodBreakdownErrors}
+              onPeriodHover={fetchPeriodBreakdown}
+            />
           )}
         </section>
       )}

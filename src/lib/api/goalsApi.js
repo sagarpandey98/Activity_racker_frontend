@@ -71,6 +71,15 @@ export const goalPeriodsApi = {
   getOne: (goalUuid, periodUuid) =>
     trackerClient.get(`/goals/${goalUuid}/periods/${periodUuid}`).then(r => r.data),
 
+  getHealthBreakdown: (goalUuid, periodUuid, evaluationDate) =>
+    trackerClient
+      .get(
+        `/goals/${goalUuid}/periods/${periodUuid}/health-breakdown${
+          evaluationDate ? `?evaluationDate=${evaluationDate}` : ''
+        }`
+      )
+      .then(r => r.data),
+
   create: (goalUuid, data = {}) =>
     trackerClient.post(`/goals/${goalUuid}/periods`, data).then(r => r.data),
 
@@ -87,6 +96,26 @@ export const goalPeriodsApi = {
 
   delete: (goalUuid, periodUuid) =>
     trackerClient.delete(`/goals/${goalUuid}/periods/${periodUuid}`).then(r => r.data),
+
+  recalculateHealth: (goalUuid, options = {}) => {
+    const params = new URLSearchParams();
+    if (options.reconcile !== undefined) {
+      params.set('reconcile', String(options.reconcile));
+    }
+    if (options.throughDate) {
+      params.set('throughDate', options.throughDate);
+    }
+    const query = params.toString();
+
+    return trackerClient
+      .post(`/goals/${goalUuid}/periods/health/recalculate${query ? `?${query}` : ''}`)
+      .then(r => r.data);
+  },
+
+  recalculatePeriodHealth: (goalUuid, periodUuid) =>
+    trackerClient
+      .post(`/goals/${goalUuid}/periods/${periodUuid}/health/recalculate`)
+      .then(r => r.data),
 };
 
 // Priority System
