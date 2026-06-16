@@ -288,6 +288,28 @@ function formatCommittedTime(minutes) {
   return mins === 0 ? `${hours}h (${rounded} min)` : `${hours}h ${mins}m (${rounded} min)`;
 }
 
+/** Look up a human label for an enum value from a {value,label} list. */
+function labelOf(list, value) {
+  if (value === null || value === undefined || value === '') return '';
+  const found = list.find((item) => item.value === value);
+  return found ? found.label : String(value);
+}
+
+/** Round a numeric score to a whole number for display, '' when absent. */
+function formatScoreValue(value) {
+  if (value === null || value === undefined || value === '') return '';
+  const number = Number(value);
+  return Number.isFinite(number) ? String(Math.round(number)) : '';
+}
+
+/** Format an ISO date/datetime for read-only display, '' when absent. */
+function formatDateDisplay(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
 function getChildFrequency(rootFreq, monthlyMode) {
   switch (rootFreq) {
     case 'WEEKLY': return 'DAILY';
@@ -1653,13 +1675,12 @@ export default function GoalDrawer({ isOpen, onClose, onSuccess, parentGoal, edi
                     </button>
                   )}
 
-                  <div className={`grid grid-cols-1 gap-3 ${isEdit ? '' : 'sm:grid-cols-2 sm:gap-4'}`}>
-                    {!isEdit ? (
-                      <Field label="Start Date">
-                        <Input type="date" value={form.startDate} onChange={(e) => update({ startDate: e.target.value })}
-                          className="h-10 w-full rounded-xl bg-white/5 border border-white/10 text-white focus-visible:border-white/25 focus-visible:ring-0" />
-                      </Field>
-                    ) : null}
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+                    <Field label="Start Date" hint={isEdit ? 'Locked' : undefined}>
+                      <Input type="date" value={form.startDate} onChange={(e) => update({ startDate: e.target.value })}
+                        disabled={isEdit} readOnly={isEdit}
+                        className={`h-10 w-full rounded-xl border border-white/10 text-white focus-visible:border-white/25 focus-visible:ring-0 ${isEdit ? 'bg-white/[0.03] cursor-not-allowed text-slate-300 disabled:opacity-100' : 'bg-white/5'}`} />
+                    </Field>
                     <Field label="End Date">
                       <Input type="date" value={form.targetDate} onChange={(e) => update({ targetDate: e.target.value })}
                         className="h-10 w-full rounded-xl bg-white/5 border border-white/10 text-white focus-visible:border-white/25 focus-visible:ring-0" />
@@ -1726,6 +1747,104 @@ export default function GoalDrawer({ isOpen, onClose, onSuccess, parentGoal, edi
                   ) : null}
                 </div>
               </FormSection>
+
+              {/* Edit mode: surface the rest of the goal's data read-only instead of hiding it. */}
+              {isEdit ? (
+                <FormSection icon={Clock} title="Commitment & Schedule" tone="amber">
+                  <div className="space-y-4">
+                    <p className="text-[11px] leading-relaxed text-slate-500">
+                      Set when this goal was created. Shown here for reference and can&apos;t be changed from this screen.
+                    </p>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <ReadOnlyInfoField
+                        label="Tracking mode"
+                        value={form.isContainer ? 'Rolls up from child goals' : 'Tracked directly'}
+                        placeholder="—"
+                      />
+                      <ReadOnlyInfoField
+                        label="Frequency"
+                        value={labelOf(FREQUENCIES, form.scheduleFrequency)}
+                        placeholder="—"
+                      />
+                    </div>
+
+                    {!form.isContainer ? (
+                      <>
+                        <ReadOnlyInfoField
+                          label="Schedule"
+                          value={form.scheduleFlexible ? 'Flexible — any time in the period' : (scheduleSummary || 'Specific schedule')}
+                          placeholder="—"
+                        />
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                          <ReadOnlyInfoField label="What you track" value={labelOf(METRICS, form.metric)} placeholder="—" />
+                          <ReadOnlyInfoField label="Target rule" value={labelOf(OPERATORS, form.targetOperator)} placeholder="—" />
+                        </div>
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                          <ReadOnlyInfoField label="Overall target" value={formatNumberValue(editGoal?.targetValue)} placeholder="—" />
+                          <ReadOnlyInfoField label={`Min activity ${periodLabel}`} value={formatNumberValue(editGoal?.minimumSessionPeriod)} placeholder="—" />
+                        </div>
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                          <ReadOnlyInfoField label={`Max activity ${periodLabel}`} value={formatNumberValue(editGoal?.maximumSessionPeriod)} placeholder="—" />
+                          <ReadOnlyInfoField label="Time per activity" value={formatCommittedTime(editGoal?.minimumTimeCommittedPerActivity)} placeholder="—" />
+                        </div>
+                        <ReadOnlyInfoField
+                          label="Total time committed per period"
+                          value={formatCommittedTime(editGoal?.minimumTimeCommittedPeriod)}
+                          placeholder="—"
+                        />
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                          <ReadOnlyInfoField label="Misses allowed per period" value={formatNumberValue(editGoal?.missesAllowedPerPeriod)} placeholder="Auto" />
+                          <ReadOnlyInfoField label="Multiple sessions / day" value={editGoal?.allowDoubleLogging === false ? 'Not allowed' : 'Allowed'} placeholder="—" />
+                        </div>
+                        <div>
+                          <div className="mb-1 text-sm font-medium text-slate-300">Health weights</div>
+                          <div className="grid grid-cols-3 gap-3">
+                            <ReadOnlyInfoField label="Consistency" value={formatNumberValue(editGoal?.consistencyWeight)} placeholder="Auto" />
+                            <ReadOnlyInfoField label="Momentum" value={formatNumberValue(editGoal?.momentumWeight)} placeholder="Auto" />
+                            <ReadOnlyInfoField label="Progress" value={formatNumberValue(editGoal?.progressWeight)} placeholder="Auto" />
+                          </div>
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                </FormSection>
+              ) : null}
+
+              {isEdit ? (
+                <FormSection icon={Zap} title="Progress & Health" tone="green">
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <ReadOnlyInfoField label="Current value" value={formatNumberValue(editGoal?.currentValue)} placeholder="—" />
+                      <ReadOnlyInfoField
+                        label="Progress"
+                        value={formatNumberValue(editGoal?.progressPercentage) !== '' ? `${formatNumberValue(editGoal?.progressPercentage)}%` : ''}
+                        placeholder="—"
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <ReadOnlyInfoField label="Health score" value={formatScoreValue(editGoal?.healthScore)} placeholder="—" />
+                      <ReadOnlyInfoField
+                        label="Health status"
+                        value={(editGoal?.healthStatus || '').replace(/_/g, ' ')}
+                        placeholder="—"
+                      />
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <ReadOnlyInfoField label="Consistency" value={formatScoreValue(editGoal?.consistencyScore)} placeholder="—" />
+                      <ReadOnlyInfoField label="Momentum" value={formatScoreValue(editGoal?.momentumScore)} placeholder="—" />
+                      <ReadOnlyInfoField label="Progress score" value={formatScoreValue(editGoal?.progressScore)} placeholder="—" />
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <ReadOnlyInfoField label="Current streak" value={formatNumberValue(editGoal?.currentStreak)} placeholder="—" />
+                      <ReadOnlyInfoField label="Longest streak" value={formatNumberValue(editGoal?.longestStreak)} placeholder="—" />
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <ReadOnlyInfoField label="Created" value={formatDateDisplay(editGoal?.createdAt)} placeholder="—" />
+                      <ReadOnlyInfoField label="Last updated" value={formatDateDisplay(editGoal?.lastUpdatedAt)} placeholder="—" />
+                    </div>
+                  </div>
+                </FormSection>
+              ) : null}
 
               {!isEdit && !form.isContainer ? (
                 <FormSection icon={Zap} title="Effort & Commitment" tone="green">
