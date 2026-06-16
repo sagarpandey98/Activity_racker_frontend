@@ -74,8 +74,8 @@ export default function DashboardPage() {
     fetchData();
   }, []);
 
-  // Count today's activities
-  const todayActivityCount = recentActivities.filter(a => isToday(a.createdAt)).length;
+  // Count today's activities (exclude "No activity" / skip records)
+  const todayActivityCount = recentActivities.filter(a => isToday(a.createdAt) && a.entryType !== 'SKIP').length;
 
   // Skeleton components
   const SkeletonCard = () => (

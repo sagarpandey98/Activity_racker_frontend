@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 // Routes that require authentication
 const protectedRoutes = [
+  '/tasks',
   '/dashboard',
   '/goals',
   '/activities',
@@ -37,7 +38,7 @@ export function proxy(request) {
   // Authenticated user trying to access login/signup
   if (isAuthRoute && token) {
     return NextResponse.redirect(
-      new URL('/dashboard', request.url)
+      new URL('/tasks', request.url)
     );
   }
 

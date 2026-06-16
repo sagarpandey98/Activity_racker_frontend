@@ -1199,6 +1199,7 @@ export default function GoalDetailPage() {
     let lastLoggedAt = null;
 
     activities.forEach((activity) => {
+      if (activity.entryType === 'SKIP') return; // skips are shown in the list but never charted/counted
       const dateKey = getLocalDateKey(getActivityDateValue(activity));
       const row = rowsByDate.get(dateKey);
       if (!row) return;

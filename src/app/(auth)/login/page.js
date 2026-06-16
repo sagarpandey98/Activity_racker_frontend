@@ -40,7 +40,7 @@ export default function LoginPage() {
       }
       
       setUser(response.user || { email: formData.email });
-      router.push('/dashboard');
+      router.push('/tasks');
     } catch (err) {
       setError(err.message);
     } finally {

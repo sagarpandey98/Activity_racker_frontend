@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { X, Loader2, Target, Search, Plus } from 'lucide-react';
+import { X, Loader2, Target, Search, Plus, CheckCircle2, Ban } from 'lucide-react';
 import { activitiesApi } from '@/lib/api/activitiesApi';
 import { goalsApi } from '@/lib/api/goalsApi';
 import { getPriorityLabel, getPriorityColor } from '@/lib/utils/goalUtils';
+import { SKIP_REASON_CATEGORIES, getSkipReasonSubcategories } from '@/lib/constants/skipReasons';
 
 const MOODS = [
   { value: 1, emoji: '😫', label: 'Very hard' },
@@ -42,6 +43,12 @@ export default function QuickLogDrawer({ isOpen, onClose, onSuccess, prefillGoal
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
 
+  // "No activity" / skip log state
+  const [isSkipLog, setIsSkipLog] = useState(false);
+  const [reasonCategory, setReasonCategory] = useState('');
+  const [reasonSubcategory, setReasonSubcategory] = useState('');
+  const [note, setNote] = useState('');
+
   const activityInputRef = useRef(null);
 
   // Initialize on mount
@@ -74,6 +81,10 @@ export default function QuickLogDrawer({ isOpen, onClose, onSuccess, prefillGoal
       setShowMood(false);
       setError('');
       setShowGoalDropdown(false);
+      setIsSkipLog(Boolean(prefillGoal?.isSkipLog));
+      setReasonCategory('');
+      setReasonSubcategory('');
+      setNote('');
 
       // Pre-fill goal if provided
       if (prefillGoal) {
@@ -156,15 +167,26 @@ export default function QuickLogDrawer({ isOpen, onClose, onSuccess, prefillGoal
   );
 
   const handleSubmit = async () => {
-    if (!activityName.trim()) {
-      setError('Activity name is required');
-      return;
-    }
-
-    const duration = getDuration();
-    if (!duration) {
-      setError('End time must be after start time');
-      return;
+    if (isSkipLog) {
+      // "No activity" record: must be tied to a goal and carry a reason for later analysis.
+      if (!selectedGoal) {
+        setError('Select the goal you did not do.');
+        return;
+      }
+      if (!reasonCategory) {
+        setError('Pick a reason for not doing it.');
+        return;
+      }
+    } else {
+      if (!activityName.trim()) {
+        setError('Activity name is required');
+        return;
+      }
+      const duration = getDuration();
+      if (!duration) {
+        setError('End time must be after start time');
+        return;
+      }
     }
 
     setIsSaving(true);
@@ -175,25 +197,31 @@ export default function QuickLogDrawer({ isOpen, onClose, onSuccess, prefillGoal
       const today = prefillGoal?.activityDate
         ? new Date(`${prefillGoal.activityDate}T00:00:00`)
         : new Date();
-      
-      // Parse start and end times and combine with today's date
+
+      // Parse start and end times and combine with today's date.
+      // (Skip logs keep the default times; the moment is informational, not counted.)
       const [startHours, startMins] = startTime.split(':').map(Number);
       const [endHours, endMins] = endTime.split(':').map(Number);
-      
+
       const startDate = new Date(today);
       startDate.setHours(startHours, startMins, 0, 0);
-      
+
       const endDate = new Date(today);
       endDate.setHours(endHours, endMins, 0, 0);
-      
-      // Convert to ISO string
+      // Skip logs may not have a positive duration; ensure end is never before start.
+      if (isSkipLog && endDate <= startDate) {
+        endDate.setTime(startDate.getTime() + 60 * 1000);
+      }
+
       const startISO = startDate.toISOString();
       const endISO = endDate.toISOString();
 
-      // Step 1: Create activity
+      // Step 1: Create the entry (activity OR skip).
       await activitiesApi.create({
         data: {
-          name: activityName.trim(),
+          name: isSkipLog
+            ? (activityName.trim() || `No activity${selectedGoal ? ` — ${selectedGoal.title || selectedGoal.name}` : ''}`)
+            : activityName.trim(),
           startTime: startISO,
           endTime: endISO,
           domainId:
@@ -210,12 +238,18 @@ export default function QuickLogDrawer({ isOpen, onClose, onSuccess, prefillGoal
           goalId: selectedGoal?.id || null,
           mood: mood || null,
           rating: mood || null,
-          source: 'WEB_APP',
+          source: isSkipLog ? 'WEB_APP_SKIP' : 'WEB_APP',
+          // Skip metadata — backend stores it but never counts it.
+          entryType: isSkipLog ? 'SKIP' : 'ACTIVITY',
+          notDoneReasonCategory: isSkipLog ? reasonCategory : null,
+          notDoneReasonSubcategory: isSkipLog ? (reasonSubcategory || null) : null,
+          description: isSkipLog ? (note.trim() || null) : null,
         },
       });
 
-      // Step 2: Update goal progress if units > 0
-      if (selectedGoal && parseFloat(units) > 0) {
+      // Step 2: Update goal progress — ONLY for real activities. A skip must never
+      // bump currentValue (this is a separate write the backend can't infer).
+      if (!isSkipLog && selectedGoal && parseFloat(units) > 0) {
         const newValue = (selectedGoal.currentValue || 0) + parseFloat(units);
         await goalsApi.updateProgress(selectedGoal.id, newValue);
       }
@@ -266,10 +300,10 @@ export default function QuickLogDrawer({ isOpen, onClose, onSuccess, prefillGoal
               <div className="flex items-start justify-between">
                 <div>
                   <h2 className="text-lg font-semibold text-white">
-                    Log Activity
+                    {isSkipLog ? 'No Activity' : 'Log Activity'}
                   </h2>
                   <p className="text-xs text-slate-500 mt-1">
-                    What did you work on?
+                    {isSkipLog ? 'Why was it not done?' : 'What did you work on?'}
                   </p>
                 </div>
                 <button
@@ -285,12 +319,40 @@ export default function QuickLogDrawer({ isOpen, onClose, onSuccess, prefillGoal
 
             {/* Body */}
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
-              {/* Activity Name */}
+              {/* Did it / Didn't do it toggle */}
+              <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-1">
+                <button
+                  type="button"
+                  onClick={() => setIsSkipLog(false)}
+                  className={`flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                    !isSkipLog
+                      ? 'bg-emerald-500/20 text-emerald-300 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  <CheckCircle2 className="h-4 w-4" />
+                  I did it
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsSkipLog(true)}
+                  className={`flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                    isSkipLog
+                      ? 'bg-rose-500/20 text-rose-300 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  <Ban className="h-4 w-4" />
+                  Didn&apos;t do it
+                </button>
+              </div>
+
+              {/* Activity Name (optional for a skip) */}
               <div>
                 <input
                   ref={activityInputRef}
                   type="text"
-                  placeholder="What did you work on?"
+                  placeholder={isSkipLog ? 'Short title (optional)' : 'What did you work on?'}
                   value={activityName}
                   onChange={(e) => setActivityName(e.target.value)}
                   className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-base text-white placeholder:text-slate-600 focus:outline-none focus:border-white/25 transition-colors"
@@ -300,7 +362,7 @@ export default function QuickLogDrawer({ isOpen, onClose, onSuccess, prefillGoal
               {/* Goal Selector */}
               <div>
                 <label className="text-sm text-slate-400 mb-2 block">
-                  Goal (optional)
+                  {isSkipLog ? 'Goal (required)' : 'Goal (optional)'}
                 </label>
 
                 {selectedGoal ? (
@@ -387,8 +449,75 @@ export default function QuickLogDrawer({ isOpen, onClose, onSuccess, prefillGoal
                 )}
               </div>
 
+              {/* Not-done reason (skip only) */}
+              {isSkipLog && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-sm text-slate-400 mb-2 block">Reason</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {SKIP_REASON_CATEGORIES.map((cat) => (
+                        <button
+                          key={cat.value}
+                          type="button"
+                          onClick={() => {
+                            setReasonCategory(cat.value);
+                            setReasonSubcategory('');
+                          }}
+                          className={`rounded-xl border px-3 py-2 text-sm font-medium transition-colors ${
+                            reasonCategory === cat.value
+                              ? 'border-rose-400/40 bg-rose-500/15 text-rose-200'
+                              : 'border-white/10 bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]'
+                          }`}
+                        >
+                          {cat.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {reasonCategory && getSkipReasonSubcategories(reasonCategory).length > 0 && (
+                    <div>
+                      <label className="text-xs text-slate-500 mb-1 block">
+                        More specifically (optional)
+                      </label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {getSkipReasonSubcategories(reasonCategory).map((sub) => (
+                          <button
+                            key={sub}
+                            type="button"
+                            onClick={() =>
+                              setReasonSubcategory(reasonSubcategory === sub ? '' : sub)
+                            }
+                            className={`rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${
+                              reasonSubcategory === sub
+                                ? 'border-rose-400/40 bg-rose-500/15 text-rose-200'
+                                : 'border-white/10 bg-white/[0.03] text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            {sub}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="text-sm text-slate-400 mb-2 block">
+                      Notes (optional)
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={note}
+                      onChange={(e) => setNote(e.target.value)}
+                      placeholder="What got in the way?"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-white/25 transition-colors resize-none"
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Time */}
-              <div>
+              <div className={isSkipLog ? 'hidden' : undefined}>
                 <label className="text-sm text-slate-400 mb-2 block">
                   When
                 </label>
@@ -432,8 +561,8 @@ export default function QuickLogDrawer({ isOpen, onClose, onSuccess, prefillGoal
                 </div>
               </div>
 
-              {/* Units (only when goal selected) */}
-              {selectedGoal && (
+              {/* Units (only when goal selected, and not a skip) */}
+              {!isSkipLog && selectedGoal && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
@@ -543,6 +672,8 @@ export default function QuickLogDrawer({ isOpen, onClose, onSuccess, prefillGoal
                     <Loader2 className="w-4 h-4 animate-spin" />
                     Saving...
                   </>
+                ) : isSkipLog ? (
+                  'Record no activity'
                 ) : (
                   'Log Activity'
                 )}

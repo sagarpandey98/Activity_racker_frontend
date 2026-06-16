@@ -96,7 +96,7 @@ function SignupPageContent() {
         document.cookie = `auth_token=${token}; path=/; expires=${expiryDate.toUTCString()}`;
 
         if (isSignedUp === true) {
-          router.push('/dashboard');
+          router.push('/tasks');
         } else {
           setStep(3);
         }
@@ -135,7 +135,7 @@ function SignupPageContent() {
       }
       
       setUser(response.user || { email: formData.email, name: formData.name });
-      router.push('/dashboard');
+      router.push('/tasks');
     } catch (err) {
       setError(err.message);
     } finally {

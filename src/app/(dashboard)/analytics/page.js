@@ -705,6 +705,7 @@ export default function AnalyticsPage() {
     const map = new Map();
 
     activities.forEach((activity) => {
+      if (activity.entryType === 'SKIP') return; // skips never count toward goal activity stats
       const goalId = getActivityGoalId(activity);
       if (!goalId) return;
 
@@ -778,6 +779,7 @@ export default function AnalyticsPage() {
     });
 
     activities.forEach((activity) => {
+      if (activity.entryType === 'SKIP') return; // skips are not counted in activity insights
       const dateKey = getLocalDateKey(getActivityDateValue(activity));
       const row = rowsByDate.get(dateKey);
       if (!row) return;

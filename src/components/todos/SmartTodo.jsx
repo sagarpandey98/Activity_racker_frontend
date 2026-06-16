@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   AlertTriangle,
+  Ban,
   Calendar,
   CheckCircle2,
   Circle,
@@ -121,6 +122,12 @@ const STATUS_META = {
     rank: 3,
     Icon: CheckCircle2,
     badge: 'border-emerald-400/25 bg-emerald-500/15 text-emerald-200',
+  },
+  NOT_DONE: {
+    label: 'Not done',
+    rank: 3.5,
+    Icon: Ban,
+    badge: 'border-rose-400/25 bg-rose-500/15 text-rose-200',
   },
 };
 
@@ -240,6 +247,9 @@ function getTodoType(todo) {
 }
 
 function getTodoDuration(todo) {
+  // A "No activity" / skip is never time spent — keep it out of duration totals and the Day Mix chart.
+  // (The timeline still renders it via an independent minimum block height.)
+  if (isSkipEntry(todo)) return 0;
   const candidates = [
     todo.actualDurationMinutes,
     todo.suggestedTimeMinutes,
@@ -254,7 +264,15 @@ function getTodoDuration(todo) {
   return Math.max(5, Math.round(value || 45));
 }
 
+function isSkipEntry(item) {
+  return item?.entryType === 'SKIP' || item?.activity?.entryType === 'SKIP' || item?.isSkip === true;
+}
+
 function isCompleted(todo) {
+  // A "No activity" / skip record is never a completion.
+  if (todo.todoStatus === 'NOT_DONE' || isSkipEntry(todo)) {
+    return false;
+  }
   return (
     todo.todoStatus === 'COMPLETED_TODAY' ||
     todo.todoStatus === 'ACTIVITY_DONE' ||
@@ -319,26 +337,53 @@ function buildActivityTodo(activity, selectedDate) {
   const startValue = getActivityStart(activity);
   const endValue = getActivityEnd(activity);
   const goalId = getActivityGoalId(activity);
+  const skip = activity?.entryType === 'SKIP';
 
-  return {
-    id: `activity-${activity?.uuid || activity?.id || startValue || getActivityTitle(activity)}`,
+  const base = {
+    id: `${skip ? 'skip' : 'activity'}-${activity?.uuid || activity?.id || startValue || getActivityTitle(activity)}`,
     goalId,
     title: getActivityTitle(activity),
-    priority: 'LOW',
-    priorityDisplay: 'Logged',
     goalType: goalId
       ? (activity?.goalTitle || activity?.goalName || activity?.goal?.title || 'Goal activity')
       : 'General activity',
+    startTime: startValue,
+    endTime: endValue,
+    isActivityLog: true,
+    activityDate: selectedDate,
+    entryType: activity?.entryType || 'ACTIVITY',
+    activity,
+  };
+
+  if (skip) {
+    const reason = [activity?.notDoneReasonCategory, activity?.notDoneReasonSubcategory]
+      .filter(Boolean)
+      .join(' • ');
+    return {
+      ...base,
+      priority: 'LOW',
+      priorityDisplay: 'Not done',
+      todoStatus: 'NOT_DONE',
+      isSkip: true,
+      // A small nominal block so it shows on the timeline; never counted as time spent.
+      actualDurationMinutes: 0,
+      suggestedTimeMinutes: 30,
+      notDoneReasonCategory: activity?.notDoneReasonCategory || null,
+      notDoneReasonSubcategory: activity?.notDoneReasonSubcategory || null,
+      recommendedAction: activity?.description || null,
+      progressDisplay: reason ? `Not done — ${reason}` : 'Not done',
+      completed: false,
+    };
+  }
+
+  return {
+    ...base,
+    priority: 'LOW',
+    priorityDisplay: 'Logged',
     todoStatus: 'ACTIVITY_DONE',
     actualDurationMinutes: duration,
     suggestedTimeMinutes: duration,
-    startTime: startValue,
-    endTime: endValue,
     progressDisplay: 'Logged today',
     completed: true,
-    isActivityLog: true,
-    activityDate: selectedDate,
-    activity,
   };
 }
 
@@ -373,6 +418,12 @@ function mergeActivitiesWithPlannedTasks(plannedItems, activityItems, selectedDa
   const unmatchedActivities = [];
 
   activityItems.forEach((activityItem) => {
+    // "No activity" / skip records never merge into a planned task as a completion;
+    // they stand alone as "Not done" entries.
+    if (activityItem.isSkip || activityItem.entryType === 'SKIP') {
+      unmatchedActivities.push(activityItem);
+      return;
+    }
     const activityGoalId = getActivityGoalId(activityItem.activity);
     const activityTitle = normalizeText(getTodoTitle(activityItem));
     const activityStart = getExplicitStartMinutes(activityItem, selectedDate);
@@ -852,7 +903,8 @@ export default function SmartTodo() {
   const totalCommittedDisplay = splitTimeCommitment(totalCommittedMinutes, timeUnit);
   const completedCount = allTaskItems.filter(isCompleted).length;
   const totalTaskCount = allTaskItems.length;
-  const loggedActivityCount = activities.length;
+  const loggedActivityCount = activities.filter((a) => a.entryType !== 'SKIP').length;
+  const skippedActivityCount = activities.filter((a) => a.entryType === 'SKIP').length;
   const showUpCount = showUpTasks.length;
   const activeFilterCount = [
     priorityFilter !== 'ALL',
@@ -1284,6 +1336,7 @@ export default function SmartTodo() {
                 { label: 'Completed', value: summary.completedTodayCount || 0, tone: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200' },
                 { label: 'Show-ups', value: showUpCount, tone: 'border-violet-500/20 bg-violet-500/10 text-violet-200' },
                 { label: 'Logged', value: loggedActivityCount, tone: 'border-lime-500/20 bg-lime-500/10 text-lime-200' },
+                { label: 'Not done', value: skippedActivityCount, tone: 'border-rose-500/20 bg-rose-500/10 text-rose-200' },
               ].map((chip) => (
               <div key={chip.label} className={`rounded-xl border px-3 py-2 ${chip.tone}`}>
                 <div className="text-lg font-bold leading-none">{chip.value}</div>
@@ -1370,7 +1423,7 @@ export default function SmartTodo() {
                       const done = isCompleted(block.todo);
                       const loggedCount =
                         (Array.isArray(block.todo.mergedActivities) ? block.todo.mergedActivities.length : 0) +
-                        (block.todo.isActivityLog ? 1 : 0);
+                        (block.todo.isActivityLog && !isSkipEntry(block.todo) ? 1 : 0);
                       const isRoomy = height >= 108;
                       const isSpacious = height >= 154;
                       const StatusIcon = getStatusMeta(block.todo.todoStatus).Icon;
@@ -1486,7 +1539,7 @@ export default function SmartTodo() {
                   const done = isCompleted(todo);
                   const loggedCount =
                     (Array.isArray(todo.mergedActivities) ? todo.mergedActivities.length : 0) +
-                    (todo.isActivityLog ? 1 : 0);
+                    (todo.isActivityLog && !isSkipEntry(todo) ? 1 : 0);
 
                   return (
                     <motion.div
